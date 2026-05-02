@@ -45,6 +45,9 @@ function UserPill({ user }) {
             {user.sub_role ? user.sub_role.replace('_', ' ') : rc.label}
           </span>
         </div>
+        <a href="https://github.com/odekabrayan-ship-it" target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 9, color: '#64748b', marginTop: 4, textDecoration: 'none' }} className="hover:text-blue-500">
+          github.com/odekabrayan-ship-it
+        </a>
       </div>
     </div>
   );

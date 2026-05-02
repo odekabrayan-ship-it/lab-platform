@@ -245,6 +245,7 @@ export default async function Home() {
                   <div className="flex gap-8 text-[10px] font-black text-slate-700 uppercase tracking-widest">
                       <span>Privacy Policy</span>
                       <span>Institutional Terms</span>
+                      <a href="https://github.com/odekabrayan-ship-it" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">GitHub</a>
                   </div>
               </div>
           </div>

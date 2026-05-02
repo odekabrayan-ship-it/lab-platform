@@ -85,6 +85,9 @@ export default function RootLayout({
               <div className="flex gap-8 text-[9px] font-black uppercase tracking-[0.2em] text-white/20">
                 <a href="#" className="hover:text-white">Privacy Protocol</a>
                 <a href="#" className="hover:text-white">Terms of Authentication</a>
+                <a href="https://github.com/odekabrayan-ship-it" target="_blank" rel="noreferrer" className="hover:text-white flex items-center gap-2">
+                  <span className="opacity-50">GitHub</span>
+                </a>
               </div>
             </div>
           </div>
