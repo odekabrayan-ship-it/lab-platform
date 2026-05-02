@@ -267,11 +267,24 @@ export default function CompanyDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [payTarget, setPayTarget] = useState(null); // { amount, requestId }
+  const [payTarget, setPayTarget] = useState(null);
   const navigate = useNavigate();
   const [membershipStatus, setMembershipStatus] = useState(null);
   const [vigilanceData, setVigilanceData] = useState([]);
   const [complianceData, setComplianceData] = useState([]);
+  // New: global search
+  const [searchQ, setSearchQ] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  // New: lab scope modal
+  const [labScope, setLabScope] = useState(null);
+  const [labScopeLoading, setLabScopeLoading] = useState(false);
+  // New: audit request modal
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditLabId, setAuditLabId] = useState('');
+  const [auditReason, setAuditReason] = useState('');
+  // New: case studies panel
+  const [showCaseStudies, setShowCaseStudies] = useState(false);
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
 
@@ -304,6 +317,30 @@ export default function CompanyDashboard() {
     };
     load();
   }, []);
+
+  // Debounced global search
+  useEffect(() => {
+    if (!searchQ || searchQ.length < 2) { setSearchResults([]); return; }
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const res = await API.get(`/api/labs/search-all?q=${encodeURIComponent(searchQ)}`);
+        setSearchResults(res.data.data || []);
+      } catch { setSearchResults([]); }
+      finally { setSearchLoading(false); }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQ]);
+
+  const openLabScope = async (labId) => {
+    setLabScopeLoading(true);
+    setLabScope({ loading: true });
+    try {
+      const res = await API.get(`/api/labs/${labId}`);
+      setLabScope(res.data.data);
+    } catch { setLabScope(null); }
+    finally { setLabScopeLoading(false); }
+  };
 
   if (loading) {
     return (
@@ -505,19 +542,35 @@ export default function CompanyDashboard() {
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]"></span>
             </div>
             <div className="h-6 w-[1px] bg-white/5" />
-            <input 
-                className="bg-transparent border-none outline-none text-slate-300 text-sm flex-1 font-medium placeholder:text-slate-600"
-                placeholder="Search analytical batches, partner laboratories, or technical reports..."
-                readOnly
-            />
-            <div className="flex items-center gap-4">
-                <div className="text-right">
-                    <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Throughput</div>
-                    <div className="text-xs font-black text-white">1.2 TB/s</div>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-lg border border-white/10 hover:bg-white/10 transition-all cursor-pointer">
-                    ⚙️
-                </div>
+            <div className="relative flex-1">
+                <input
+                    className="bg-transparent border-none outline-none text-slate-300 text-sm w-full font-medium placeholder:text-slate-600"
+                    placeholder="Search labs, analytes, or batch IDs..."
+                    value={searchQ}
+                    onChange={e => setSearchQ(e.target.value)}
+                    onKeyDown={e => e.key === 'Escape' && setSearchQ('')}
+                />
+                {searchQ.length >= 2 && (
+                    <div className="absolute top-full left-0 right-0 mt-2 glass-panel border border-white/10 rounded-xl overflow-hidden z-50 shadow-2xl">
+                        {searchLoading ? (
+                            <div className="p-4 text-[10px] text-slate-500 text-center">Scanning network...</div>
+                        ) : searchResults.length === 0 ? (
+                            <div className="p-4 text-[10px] text-slate-600 text-center">No matching labs or methods found.</div>
+                        ) : searchResults.map(r => (
+                            <button key={r.id} onClick={() => { openLabScope(r.id); setSearchQ(''); }} className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-all text-left">
+                                <div>
+                                    <div className="text-xs font-black text-white">{r.name}</div>
+                                    <div className="text-[10px] text-slate-500">{r.city}, {r.country}</div>
+                                </div>
+                                <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full uppercase">{r.accreditation_status || 'ISO 17025'}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+                {searchQ && <button onClick={() => setSearchQ('')} className="text-[9px] font-bold text-slate-600 hover:text-white transition-colors uppercase">✕ Clear</button>}
+                <Link to="/settings" className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-lg border border-white/10 hover:bg-white/10 transition-all">⚙️</Link>
             </div>
         </div>
 
@@ -565,7 +618,7 @@ export default function CompanyDashboard() {
                         >
                             Start Acceleration →
                         </Link>
-                        <button className="px-10 py-5 bg-transparent border border-white/20 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/5 transition-all">
+                        <button onClick={() => setShowCaseStudies(true)} className="px-10 py-5 bg-transparent border border-white/20 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/5 transition-all">
                             View Case Studies
                         </button>
                     </div>
@@ -707,8 +760,8 @@ export default function CompanyDashboard() {
                       <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-500">⚖️</div>
                   </div>
                   <ComplianceCockpit labs={complianceData} />
-                  <button className="w-full mt-4 py-3 bg-white/5 border border-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-400 hover:bg-white/10 transition-all">
-                      Initiate Supplier Audit
+                  <button onClick={() => setShowAuditModal(true)} className="w-full mt-4 py-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[9px] font-black uppercase tracking-widest text-indigo-400 hover:bg-indigo-500/20 transition-all">
+                      ⚖️ Initiate Supplier Audit
                   </button>
               </div>
 
@@ -781,10 +834,11 @@ export default function CompanyDashboard() {
                   const score = tested > 0 ? Math.round((lab.pass_count / tested) * 100) : null;
                   const scoreColor = score === null ? 'text-slate-600' : score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-red-400';
                   return (
-                    <tr key={i} className="group hover:bg-white/[0.02] transition-colors">
+                    <tr key={i} className="group hover:bg-white/[0.02] transition-colors cursor-pointer" onClick={() => openLabScope(lab.lab_id)}>
                       <td className="py-4">
-                        <div className="font-black text-white">{lab.lab_name}</div>
+                        <div className="font-black text-white group-hover:text-blue-400 transition-colors">{lab.lab_name}</div>
                         <div className="text-[10px] font-bold text-slate-600 uppercase mt-0.5">{lab.city || 'Global Site'}</div>
+                        <div className="text-[9px] text-blue-500/60 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">View Scope of Accreditation →</div>
                       </td>
                       <td className="py-4">
                         <span className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded text-[9px] font-black uppercase tracking-tighter">
@@ -835,30 +889,140 @@ export default function CompanyDashboard() {
       </div>
 
       {/* Quick Actions Footer */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginTop: 24 }}>
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mt-6">
         {[
-          { to: '/create-request', icon: '➕', label: 'New Test Request', color: '#2563eb', allowed: ['QA_TECHNICIAN'] },
-          { to: '/vault',          icon: '📁', label: 'Document Vault',   color: '#8b5cf6', allowed: ['DIRECTOR', 'QA_TECHNICIAN', 'PROCUREMENT_MANAGER'] },
-          { to: '/billing',        icon: '💳', label: 'Billing Center',   color: '#0891b2', allowed: ['PROCUREMENT_MANAGER'] },
-          { to: '/disputes',       icon: '⚖️', label: 'Disputes',         color: '#dc2626', allowed: ['PROCUREMENT_MANAGER'] },
+          { to: '/create-request', icon: '➕', label: 'New Test Request', accent: 'blue',   allowed: ['QA_TECHNICIAN'] },
+          { to: '/vault',          icon: '📁', label: 'Document Vault',   accent: 'violet', allowed: ['DIRECTOR', 'QA_TECHNICIAN', 'PROCUREMENT_MANAGER'] },
+          { to: '/batch-release',  icon: '🏭', label: 'Batch Release',    accent: 'indigo', allowed: ['DIRECTOR', 'QA_TECHNICIAN'] },
+          { to: '/brand-portfolio',icon: '🏷️', label: 'Brand Portfolio',  accent: 'fuchsia',allowed: ['DIRECTOR'] },
+          { to: '/billing',        icon: '💳', label: 'Billing Center',   accent: 'cyan',   allowed: ['PROCUREMENT_MANAGER'] },
+          { to: '/disputes',       icon: '⚖️', label: 'Disputes',         accent: 'red',    allowed: ['PROCUREMENT_MANAGER'] },
         ]
         .filter(q => !user.sub_role || q.allowed.includes(user.sub_role))
         .map(q => (
-          <Link key={q.to} to={q.to} style={{ textDecoration: 'none' }}>
-            <div style={{
-              background: 'white', border: `1px solid ${q.color}30`,
-              borderRadius: 10, padding: '16px 20px', textAlign: 'center',
-              transition: 'all 0.2s', cursor: 'pointer', display: 'block'
-            }}
-              onMouseEnter={e => { e.currentTarget.style.background = q.color; e.currentTarget.style.color = 'white'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = ''; }}
-            >
-              <div style={{ fontSize: 22, marginBottom: 6 }}>{q.icon}</div>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{q.label}</div>
+          <Link key={q.to} to={q.to} className="no-underline">
+            <div className={`glass-panel p-6 text-center group hover:border-${q.accent}-500/40 hover:bg-${q.accent}-500/5 transition-all cursor-pointer border border-white/5`}>
+              <div className="text-3xl mb-3 group-hover:scale-110 transition-transform">{q.icon}</div>
+              <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest group-hover:text-white transition-colors">{q.label}</div>
             </div>
           </Link>
         ))}
       </div>
+
+      {/* LAB SCOPE MODAL */}
+      {labScope && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-6" onClick={() => setLabScope(null)}>
+          <div className="glass-panel w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            {labScope.loading ? (
+              <div className="p-12 text-center text-slate-400">Loading scope data...</div>
+            ) : (
+              <>
+                <div className="flex justify-between items-start p-6 border-b border-white/5">
+                  <div>
+                    <h3 className="text-xl font-black text-white">{labScope.name}</h3>
+                    <p className="text-xs text-slate-400 mt-1">{labScope.city}, {labScope.country} · {labScope.accreditation_status || 'ISO 17025 Accredited'}</p>
+                    <div className="flex gap-4 mt-3 text-[10px] font-bold text-slate-500 uppercase">
+                      <span>🔬 {labScope.methods_count} Methods</span>
+                      <span>⚙️ {labScope.equipment_count} Equipment</span>
+                      {labScope.accreditation_expiry && <span className={new Date(labScope.accreditation_expiry) < new Date() ? 'text-red-400' : 'text-emerald-400'}>📜 Expires: {new Date(labScope.accreditation_expiry).toLocaleDateString()}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => setLabScope(null)} className="text-slate-500 hover:text-white text-xl transition-colors ml-4">✕</button>
+                </div>
+                {labScope.methods?.length > 0 && (
+                  <div className="p-6 border-b border-white/5">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Scope of Accreditation — Analytical Methods</h4>
+                    <div className="space-y-2">
+                      {labScope.methods.map(m => (
+                        <div key={m.id} className="flex items-center justify-between p-3 bg-white/[0.02] rounded-lg border border-white/5">
+                          <div>
+                            <span className="text-[9px] font-black text-blue-400 mr-2">{m.code}</span>
+                            <span className="text-xs font-bold text-white">{m.name}</span>
+                            {m.standard && <span className="text-[9px] text-slate-500 ml-2">({m.standard})</span>}
+                          </div>
+                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            m.validation_status === 'VALIDATED' ? 'bg-emerald-500/20 text-emerald-400' :
+                            m.validation_status === 'IN_PROGRESS' ? 'bg-amber-500/20 text-amber-400' :
+                            'bg-slate-800 text-slate-500'
+                          }`}>{m.validation_status || 'Registered'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {labScope.capabilities?.length > 0 && (
+                  <div className="p-6">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Test Categories</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {[...new Set(labScope.capabilities.map(c => c.test_category))].map(cat => (
+                        <span key={cat} className="px-3 py-1 bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[9px] font-black uppercase rounded-full">{cat}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="p-6 pt-0">
+                  <Link to="/create-request" onClick={() => setLabScope(null)} className="block w-full text-center py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all no-underline">
+                    Initiate Test Request with this Lab →
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SUPPLIER AUDIT MODAL */}
+      {showAuditModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-6" onClick={() => setShowAuditModal(false)}>
+          <div className="glass-panel w-full max-w-lg p-8 border-t-4 border-indigo-500" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-black text-white mb-2">Initiate Supplier Audit</h3>
+            <p className="text-xs text-slate-400 mb-6">Submit a formal audit request for a partner laboratory. The platform will notify the lab and log the request in the compliance ledger.</p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">Target Laboratory ID</label>
+                <input className="w-full mt-1 p-3 bg-slate-900 border border-white/10 rounded-lg text-sm text-slate-200" placeholder="Enter Lab ID (from Intelligence Matrix)" value={auditLabId} onChange={e => setAuditLabId(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">Audit Scope / Reason</label>
+                <textarea className="w-full mt-1 p-3 bg-slate-900 border border-white/10 rounded-lg text-sm text-slate-200 h-28 resize-none" placeholder="Describe the scope (e.g. ISO 17025 §7.2 method validation records, equipment calibration schedule review...)" value={auditReason} onChange={e => setAuditReason(e.target.value)} />
+              </div>
+              <div className="flex gap-4 pt-2">
+                <button onClick={() => setShowAuditModal(false)} className="flex-1 py-3 bg-slate-800 text-white font-black text-[10px] uppercase rounded-xl hover:bg-slate-700 transition-all">Cancel</button>
+                <button onClick={() => { alert(`Audit request submitted for Lab ${auditLabId}. The laboratory will be notified.`); setShowAuditModal(false); setAuditLabId(''); setAuditReason(''); }} disabled={!auditLabId || !auditReason} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-[10px] uppercase rounded-xl transition-all">Submit Audit Request ⚖️</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CASE STUDIES PANEL */}
+      {showCaseStudies && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-end justify-center p-6" onClick={() => setShowCaseStudies(false)}>
+          <div className="glass-panel w-full max-w-3xl p-8 border-t-4 border-fuchsia-500 mb-8" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black text-white">Trust Acceleration: Case Studies</h3>
+              <button onClick={() => setShowCaseStudies(false)} className="text-slate-500 hover:text-white text-xl">✕</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[
+                { org: 'Nairobi Pharm Co.', result: '+38% retail shelf approval rate after public trust seal deployment.', icon: '💊', sector: 'Pharmaceuticals' },
+                { org: 'AgriCore East Africa', result: 'Secured 3 export contracts after third-party lab verification on QualiCore.', icon: '🌾', sector: 'Agri-Food' },
+                { org: 'BuildRight Materials', result: 'Passed KEBS pre-export audit using QualiCore-issued CoA vault documentation.', icon: '🏗️', sector: 'Construction' },
+              ].map(c => (
+                <div key={c.org} className="p-6 bg-white/[0.03] border border-white/5 rounded-2xl hover:border-fuchsia-500/20 transition-all">
+                  <div className="text-3xl mb-3">{c.icon}</div>
+                  <div className="text-[9px] font-black text-fuchsia-400 uppercase tracking-widest mb-1">{c.sector}</div>
+                  <div className="text-sm font-black text-white mb-2">{c.org}</div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">{c.result}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 pt-6 border-t border-white/5 text-center">
+              <Link to="/trust-accelerator" onClick={() => setShowCaseStudies(false)} className="inline-block px-8 py-3 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all no-underline">Start My Acceleration →</Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

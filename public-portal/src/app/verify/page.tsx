@@ -17,7 +17,7 @@ export default function VerifyReport() {
     setResult(null);
 
     try {
-      const res = await fetch(`http://localhost:3000/api/public/verify/${code}`);
+      const res = await fetch((`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/public/verify/${code}`));
       const data = await res.json();
       if (res.ok) {
         setResult(data.data);

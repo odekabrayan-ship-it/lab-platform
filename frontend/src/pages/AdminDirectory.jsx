@@ -96,7 +96,7 @@ const OnboardingTerminal = () => {
     const [selectedLab, setSelectedLab] = useState(null);
     const [auditNote, setAuditNote] = useState('');
 
-    const API_BASE = 'http://localhost:3000/api/admin';
+    const API_BASE = (`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin`);
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -273,7 +273,7 @@ const PortalMirror = () => {
     const [selectedEntity, setSelectedEntity] = useState({ id: '', type: '' });
     const [loading, setLoading] = useState(true);
 
-    const API_BASE = 'http://localhost:3000/api';
+    const API_BASE = (`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`);
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
 

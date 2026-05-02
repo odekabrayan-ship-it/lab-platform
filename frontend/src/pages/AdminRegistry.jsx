@@ -42,7 +42,7 @@ const BrandAuthority = () => {
     const [companies, setCompanies] = useState([]);
     const [brands, setBrands] = useState([]);
     const [loading, setLoading] = useState(true);
-    const API_BASE = 'http://localhost:3000/api/admin/trust';
+    const API_BASE = (`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/trust`);
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -132,7 +132,7 @@ const VigilanceMonitor = () => {
     useEffect(() => {
         const fetchReports = async () => {
             try {
-                const res = await axios.get('http://localhost:3000/api/admin/vigilance/reports', { headers });
+                const res = await axios.get((`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/vigilance/reports`), { headers });
                 setReports(res.data.data);
             } catch (err) {
                 console.error("Vigilance fetch failed", err);

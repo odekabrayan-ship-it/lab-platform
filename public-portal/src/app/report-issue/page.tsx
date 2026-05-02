@@ -2,24 +2,24 @@
 import { useState, useEffect } from 'react';
 
 export default function ReportIssue() {
-  const [brands, setBrands] = useState([]);
+  const [brands, setBrands] = useState<any[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/public/brands')
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || (`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}`)}/api/public/brands`)
       .then(res => res.json())
       .then(data => setBrands(data.data || []));
   }, []);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
-    const formData = new FormData(e.target);
+    const formData = new FormData(e.currentTarget);
     const data = Object.fromEntries(formData.entries());
 
     try {
-      const res = await fetch('http://localhost:3000/api/public/vigilance/report', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}`)}/api/public/vigilance/report`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)

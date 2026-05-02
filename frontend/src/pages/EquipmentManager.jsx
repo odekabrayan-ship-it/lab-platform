@@ -13,7 +13,7 @@ export default function EquipmentManager() {
     criticality: "NON-CRITICAL", calibration_interval_months: 12,
     calibration_date: "", calibration_expiry: "" 
   });
-  const [logForm, setLogForm] = useState({ action_type: "CLEANING", notes: "" });
+  const [logForm, setLogForm] = useState({ action_type: "CLEANING", notes: "", new_calibration_date: "", new_expiry_date: "", certificate_number: "", calibrating_body: "" });
 
   const loadEquipment = async () => {
     try {
@@ -52,12 +52,17 @@ export default function EquipmentManager() {
 
   const handleLogSubmit = async (e) => {
       e.preventDefault();
+      // P2-2: Validate calibration fields are provided when logging a calibration
+      if (logForm.action_type === 'CALIBRATION' && !logForm.new_calibration_date) {
+          alert('Calibration date is required when logging a CALIBRATION action (ISO 17025 §6.4.8). This will update the official calibration record.');
+          return;
+      }
       try {
           await API.post(`/api/equipment/${selectedItem.id}/logs`, logForm);
-          setLogForm({ action_type: "CLEANING", notes: "" });
+          setLogForm({ action_type: "CLEANING", notes: "", new_calibration_date: "", new_expiry_date: "", certificate_number: "", calibrating_body: "" });
           fetchLogs(selectedItem.id);
-          loadEquipment();
-          alert("Log entry saved!");
+          loadEquipment(); // Refresh to show updated calibration dates
+          alert(logForm.action_type === 'CALIBRATION' ? '✅ Calibration logged and equipment calibration dates updated.' : 'Log entry saved!');
       } catch (err) { alert("Log failed"); }
   };
 
@@ -165,11 +170,37 @@ export default function EquipmentManager() {
                         <select className="w-full p-2 text-xs border rounded mb-2" value={logForm.action_type} onChange={e => setLogForm({...logForm, action_type: e.target.value})}>
                             <option value="CLEANING">🧼 Cleaning</option>
                             <option value="MAINTENANCE">🔧 Routine Maintenance</option>
-                            <option value="CALIBRATION">⚖️ Calibration</option>
+                            <option value="CALIBRATION">⚖️ Calibration (Updates Official Record)</option>
                             <option value="REPAIR">🛠️ Repair</option>
                             <option value="CHECK">✅ Performance Check</option>
                         </select>
-                        <textarea className="w-full p-2 text-xs border rounded mb-3" placeholder="Notes (e.g. Standard 7.0 checked)" value={logForm.notes} onChange={e => setLogForm({...logForm, notes: e.target.value})} />
+
+                        {/* P2-2: Calibration-specific fields — shown only when CALIBRATION is selected */}
+                        {logForm.action_type === 'CALIBRATION' && (
+                            <div className="space-y-2 mb-3 p-3 bg-amber-50 border border-amber-200 rounded">
+                                <div className="text-[9px] font-black text-amber-700 uppercase tracking-widest mb-1">⚠️ ISO 17025 §6.4.8 — Updates official calibration record</div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[9px] font-bold text-slate-500 uppercase block mb-0.5">Calibration Date *</label>
+                                        <input type="date" required className="w-full p-1.5 text-xs border rounded" value={logForm.new_calibration_date} onChange={e => setLogForm({...logForm, new_calibration_date: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] font-bold text-slate-500 uppercase block mb-0.5">New Expiry Date</label>
+                                        <input type="date" className="w-full p-1.5 text-xs border rounded" value={logForm.new_expiry_date} onChange={e => setLogForm({...logForm, new_expiry_date: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] font-bold text-slate-500 uppercase block mb-0.5">Certificate Number</label>
+                                        <input className="w-full p-1.5 text-xs border rounded font-mono" placeholder="e.g. CAL-2026-001" value={logForm.certificate_number} onChange={e => setLogForm({...logForm, certificate_number: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] font-bold text-slate-500 uppercase block mb-0.5">Calibrating Body</label>
+                                        <input className="w-full p-1.5 text-xs border rounded" placeholder="e.g. KEBS, UKAS, In-house" value={logForm.calibrating_body} onChange={e => setLogForm({...logForm, calibrating_body: e.target.value})} />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <textarea className="w-full p-2 text-xs border rounded mb-3" placeholder="Notes (e.g. Standard 7.0 checked, calibrated against NIST traceable standard)" value={logForm.notes} onChange={e => setLogForm({...logForm, notes: e.target.value})} />
                         <button type="submit" className="btn-sm btn-primary w-full text-xs">Save Log Entry</button>
                     </form>
 

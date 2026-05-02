@@ -11,6 +11,7 @@ import LabDiscovery from "./pages/LabDiscovery";
 import CreateRequest from "./pages/CreateRequest";
 import LabDashboard from "./pages/LabDashboard";
 import CompanyDashboard from "./pages/CompanyDashboard";
+import BrandPortfolio from "./pages/BrandPortfolio";
 import SampleRegistration from "./pages/SampleRegistration";
 import SampleDetail from "./pages/SampleDetail";
 import ResultEntry from "./pages/ResultEntry";
@@ -58,6 +59,12 @@ import AdminDirectory from "./pages/AdminDirectory";
 import AdminRegistry from "./pages/AdminRegistry";
 import AdminAccreditation from "./pages/AdminAccreditation";
 import QualityLedger from "./pages/QualityLedger";
+import ControlChart from "./pages/ControlChart";
+import RiskRegister from "./pages/RiskRegister";
+import ProficiencyTesting from "./pages/ProficiencyTesting";
+import DocumentControl from "./pages/DocumentControl";
+import CompetencyAssessment from "./pages/CompetencyAssessment";
+import BatchRelease from "./pages/BatchRelease";
 import ConsumerHub from "./pages/ConsumerHub";
 import TrustAccelerator from "./pages/TrustAccelerator";
 import SealCommandCenter from "./pages/SealCommandCenter";
@@ -115,6 +122,7 @@ function App() {
 
           {/* ── Client Routes ── */}
           <Route path="/company-dashboard" element={<CompanyDashboard />} />
+          <Route path="/brand-portfolio"   element={<BrandPortfolio />} />
           <Route path="/trust-accelerator" element={<TrustAccelerator />} />
           <Route path="/seal-command"      element={<SealCommandCenter />} />
           <Route path="/rfqs"              element={<RFQMarketplace />} />
@@ -163,6 +171,12 @@ function App() {
           <Route path="/marketplace"       element={<LabMarketplace />} />
           <Route path="/talent-marketplace" element={<TalentMarketplace />} />
           <Route path="/quality-ledger"    element={<QualityLedger />} />
+          <Route path="/control-chart"     element={<ControlChart />} />
+          <Route path="/risk-register"     element={<RiskRegister />} />
+          <Route path="/proficiency-testing" element={<ProficiencyTesting />} />
+          <Route path="/document-control"  element={<DocumentControl />} />
+          <Route path="/competency-assessment" element={<CompetencyAssessment />} />
+          <Route path="/batch-release"       element={<BatchRelease />} />
           <Route path="/professional-profile" element={<ProfessionalProfile />} />
           <Route path="/audit"             element={<OperationalAudit />} />
           <Route path="/matrix"            element={<StaffMatrix />} />
@@ -183,6 +197,7 @@ function App() {
           <Route path="/admin/directory"   element={<AdminDirectory />} />
           <Route path="/admin/registry"    element={<AdminRegistry />} />
           <Route path="/admin/accreditation" element={<AdminAccreditation />} />
+          <Route path="/admin/treasury"    element={<AdminTreasury />} />
         </Route>
 
         {/* Fallback: redirect to role-appropriate home */}

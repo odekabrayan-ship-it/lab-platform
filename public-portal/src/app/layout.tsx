@@ -32,7 +32,7 @@ export default function RootLayout({
             </div>
 
             <div className="flex items-center gap-6">
-              <a href="http://localhost:5173/login" className="px-6 py-3 rounded-xl bg-white text-black text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all shadow-xl shadow-white/5">
+              <a href={`${process.env.NEXT_PUBLIC_PLATFORM_URL || 'http://localhost:5173'}/login`} className="px-6 py-3 rounded-xl bg-white text-black text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all shadow-xl shadow-white/5">
                 Portal Access
               </a>
             </div>

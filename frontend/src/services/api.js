@@ -1,7 +1,10 @@
 import axios from "axios";
 
+export const API_BASE = import.meta.env.VITE_API_URL || (`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}`);
+export const PORTAL_BASE = import.meta.env.VITE_PORTAL_URL || (`${import.meta.env.VITE_PORTAL_URL || 'http://localhost:3001'}`);
+
 const API = axios.create({
-  baseURL: "http://localhost:3000", // your backend
+  baseURL: API_BASE, // your backend
 });
 
 // attach token if exists

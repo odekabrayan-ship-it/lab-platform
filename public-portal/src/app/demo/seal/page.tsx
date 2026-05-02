@@ -20,7 +20,7 @@ export default function SealDemo() {
                         {/* THE SEAL EMBED SIMULATION */}
                         <div id="seal-target">
                             <script 
-                                src="http://localhost:3000/scripts/quali-seal.js" 
+                                src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/scripts/quali-seal.js`} 
                                 data-brand-id="1" 
                                 data-theme="light"
                                 async

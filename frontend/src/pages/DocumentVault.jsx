@@ -30,7 +30,7 @@ export default function DocumentVault() {
     try {
       const res = await API.get(`/api/reports/${id}/download`);
       const { file_url } = res.data.data;
-      window.open(`http://localhost:3000${file_url}`, "_blank");
+      window.open((`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${file_url}`), "_blank");
     } catch (err) {
       alert(err.response?.data?.message || "Download failed");
     }

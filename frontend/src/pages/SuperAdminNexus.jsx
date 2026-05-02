@@ -18,7 +18,7 @@ const SuperAdminNexus = () => {
         // Fetch high-level sentinel data
         const fetchSentinelData = async () => {
             try {
-                const res = await axios.get('http://localhost:3000/api/admin/ecosystem-stats', { headers });
+                const res = await axios.get((`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/ecosystem-stats`), { headers });
                 // Mapping real data if available
             } catch (err) {
                 console.error("Sentinel sync failed");
@@ -57,6 +57,16 @@ const SuperAdminNexus = () => {
             color: 'indigo',
             path: '/admin/accreditation',
             kpi: `${stats.pendingAccreditations} Dossiers Pending`
+        },
+        {
+            id: 'treasury',
+            title: 'Treasury & Enforcement',
+            subtitle: 'Sovereign Billing & Protocol Revocation',
+            description: 'Total command over ecosystem liquidity. Track subscriptions, manage payment arrears, and execute global Sovereign Freezes.',
+            icon: '💎',
+            color: 'red',
+            path: '/admin/treasury',
+            kpi: `Ecosystem Liquidity`
         }
     ];
 
@@ -88,8 +98,8 @@ const SuperAdminNexus = () => {
                     </p>
                 </header>
 
-                {/* THE TRINITY GATES */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* THE QUAD GATES */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                     {systems.map((system, idx) => (
                         <div 
                             key={system.id}

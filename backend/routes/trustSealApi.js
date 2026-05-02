@@ -21,7 +21,7 @@ function registerTrustSealRoutes(app, { asyncHandler, sendSuccess }) {
             company: brand.company_name,
             badge: brand.trust_badge,
             verified_at: new Date().toISOString(),
-            portal_url: `http://localhost:3001/brands/${req.params.brandId}`
+            portal_url: `${process.env.PORTAL_URL || 'http://localhost:3001'}/brands/${req.params.brandId}`
         });
     }));
 
@@ -43,7 +43,7 @@ function registerTrustSealRoutes(app, { asyncHandler, sendSuccess }) {
     container.style.cursor = 'pointer';
     currentScript.parentNode.insertBefore(container, currentScript);
 
-    fetch('http://localhost:3000/api/public/verify-seal/' + brandId)
+    fetch('${process.env.API_URL || 'http://localhost:3000'}/api/public/verify-seal/' + brandId)
         .then(response => response.json())
         .then(data => {
             if (!data.success) return;

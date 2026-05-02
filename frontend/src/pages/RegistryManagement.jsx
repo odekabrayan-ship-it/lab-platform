@@ -12,7 +12,7 @@ const RegistryManagement = () => {
     const [showModal, setShowModal] = useState(false);
     const [currentEntity, setCurrentEntity] = useState(null);
 
-    const API_BASE = 'http://localhost:3000/api/admin/trust';
+    const API_BASE = (`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/trust`);
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -26,7 +26,7 @@ const RegistryManagement = () => {
             const [compRes, brandRes, vigilanceRes] = await Promise.all([
                 axios.get(`${API_BASE}/companies`, { headers }),
                 axios.get(`${API_BASE}/brands`, { headers }),
-                axios.get(`http://localhost:3000/api/admin/vigilance/reports`, { headers })
+                axios.get((`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/vigilance/reports`), { headers })
             ]);
             setCompanies(compRes.data.data);
             setBrands(brandRes.data.data);
@@ -178,7 +178,7 @@ const RegistryManagement = () => {
                                     <button onClick={() => { setCurrentEntity(b); setShowModal(true); }} className="p-2 hover:text-indigo-400 transition-colors">Edit</button>
                                     <button 
                                         onClick={() => {
-                                            const code = `<script src="http://localhost:3000/scripts/quali-seal.js" data-brand-id="${b.id}" data-theme="dark"></script>`;
+                                            const code = `<script src="${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/scripts/quali-seal.js" data-brand-id="${b.id}" data-theme="dark"></script>`;
                                             navigator.clipboard.writeText(code);
                                             alert("Embed Code Copied to Clipboard!\n\nGive this to the brand to place on their website.");
                                         }}
@@ -205,7 +205,7 @@ const RegistryManagement = () => {
                                         <select 
                                             defaultValue={report.status}
                                             onChange={async (e) => {
-                                                await axios.put(`http://localhost:3000/api/admin/vigilance/reports/${report.id}`, { status: e.target.value, brand_response: report.brand_response }, { headers });
+                                                await axios.put((`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/vigilance/reports/${report.id}`), { status: e.target.value, brand_response: report.brand_response }, { headers });
                                                 fetchData();
                                             }}
                                             className="bg-white/5 border border-white/10 rounded-lg px-3 py-1 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-indigo-500"
@@ -243,7 +243,7 @@ const RegistryManagement = () => {
                                             defaultValue={report.brand_response}
                                             placeholder="Enter the official response or investigation outcome..."
                                             onBlur={async (e) => {
-                                                await axios.put(`http://localhost:3000/api/admin/vigilance/reports/${report.id}`, { status: report.status, brand_response: e.target.value }, { headers });
+                                                await axios.put((`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/vigilance/reports/${report.id}`), { status: report.status, brand_response: e.target.value }, { headers });
                                             }}
                                             className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:border-indigo-500/50 outline-none h-24"
                                         />

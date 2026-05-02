@@ -283,8 +283,8 @@ export default function TrustAccelerator() {
                             Our sovereign auditors will begin the forensic review immediately. You will receive an encrypted notification upon verification.
                         </p>
                         <div className="flex flex-col items-center gap-6">
-                            <Link to="/company-dashboard" className="px-12 py-5 rounded-2xl bg-white text-indigo-600 font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all shadow-xl">
-                                Return to Command Center
+                            <Link to="/brand-portfolio" state={{ fromAccelerator: true, tier: selectedTier }} className="px-12 py-5 rounded-2xl bg-white text-indigo-600 font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all shadow-xl">
+                                Step 2: Build Brand Portfolio →
                             </Link>
                             <p className="text-[10px] text-slate-700 font-bold uppercase tracking-[0.4em]">
                                 Estimated Review Time: 24 - 48 Hours

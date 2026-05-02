@@ -1362,7 +1362,7 @@ app.post('/api/reports/generate', authenticateToken, authorize('lab', 'client'),
     const fileUrl = `/reports/${filename}`;
     const verificationCode = `VR-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
     // In production, this would be the public URL
-    const verificationUrl = `http://localhost:5173/verify/${verificationCode}`;
+    const verificationUrl = `${process.env.LAB_PLATFORM_URL || 'http://localhost:5173'}/verify/${verificationCode}`;
 
     // Generate QR Code Buffer
     const qrBuffer = await QRCode.toBuffer(verificationUrl, { margin: 1, scale: 4 });
@@ -3017,6 +3017,50 @@ app.patch('/api/admin/subscriptions/:type/:id', authenticateToken, authorize('ad
     sendSuccess(res, { success: true });
 }));
 
+// --- GLOBAL KILL SWITCH (SOVEREIGN FREEZE) ---
+app.post('/api/admin/treasury/freeze/:type/:id', authenticateToken, authorize('admin'), asyncHandler(async (req, res) => {
+    const { type, id } = req.params;
+    const { reason } = req.body;
+    const table = type === 'lab' ? 'laboratories' : 'clients';
+    
+    await dbRun(
+        `UPDATE ${table} SET subscription_status = 'REVOKED', verification_status = 'SUSPENDED' WHERE id = ?`,
+        [id]
+    );
+    
+    const entity = await dbGet(`SELECT user_id FROM ${table} WHERE id = ?`, [id]);
+    if (entity) {
+        await dbRun(`INSERT INTO notifications (user_id, message, type) VALUES (?, ?, ?)`, 
+            [entity.user_id, `URGENT: Your institutional access has been suspended by Sovereign Authority. Reason: ${reason || 'Compliance/Billing Violation'}`, 'SYSTEM_ALERT']);
+    }
+    
+    if (type === 'lab') await TrustSnapshotService.syncLaboratory(id).catch(e => console.error(e));
+    if (type === 'client') await TrustSnapshotService.syncCompany(id).catch(e => console.error(e));
+    
+    sendSuccess(res, { success: true, message: 'Entity suspended globally.' });
+}));
+
+app.post('/api/admin/treasury/reinstate/:type/:id', authenticateToken, authorize('admin'), asyncHandler(async (req, res) => {
+    const { type, id } = req.params;
+    const table = type === 'lab' ? 'laboratories' : 'clients';
+    
+    await dbRun(
+        `UPDATE ${table} SET subscription_status = 'ACTIVE', verification_status = 'VERIFIED' WHERE id = ?`,
+        [id]
+    );
+    
+    const entity = await dbGet(`SELECT user_id FROM ${table} WHERE id = ?`, [id]);
+    if (entity) {
+        await dbRun(`INSERT INTO notifications (user_id, message, type) VALUES (?, ?, ?)`, 
+            [entity.user_id, `Your institutional access has been reinstated by Sovereign Authority.`, 'SYSTEM_ALERT']);
+    }
+    
+    if (type === 'lab') await TrustSnapshotService.syncLaboratory(id).catch(e => console.error(e));
+    if (type === 'client') await TrustSnapshotService.syncCompany(id).catch(e => console.error(e));
+    
+    sendSuccess(res, { success: true, message: 'Entity reinstated globally.' });
+}));
+
 // --- MEMBERSHIP AUTHORITY ENDPOINTS ---
 app.post("/api/admin/membership/approve", authenticateToken, authorize('admin'), asyncHandler(async (req, res) => {
     const { id, type, fee_amount } = req.body; 
@@ -3073,6 +3117,17 @@ app.post("/api/membership/subscribe", authenticateToken, asyncHandler(async (req
         [req.user.id, 'SUBSCRIPTION_ACTIVATED', req.user.role, JSON.stringify({ tier, expiry: expiryStr })]);
         
     sendSuccess(res, { success: true, expiry: expiryStr });
+}));
+
+app.get('/api/admin/professionals/active', authenticateToken, authorize('admin'), asyncHandler(async (req, res) => {
+    const data = await dbAll(`
+        SELECT p.id, p.full_name, p.specialty, p.specialty_tier, p.certification_status, u.email 
+        FROM professionals p 
+        JOIN users u ON p.user_id = u.id 
+        WHERE p.certification_status IN ('approved', 'suspended')
+        ORDER BY p.created_at DESC
+    `);
+    sendSuccess(res, data);
 }));
 
 app.get('/api/admin/professionals/:id', authenticateToken, authorize('admin'), asyncHandler(async (req, res) => {

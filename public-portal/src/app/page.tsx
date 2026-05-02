@@ -4,7 +4,7 @@ import Link from 'next/link';
 
 async function getStats() {
   try {
-    const res = await fetch('http://localhost:3000/api/public/stats', { next: { revalidate: 60 } });
+    const res = await fetch((`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/public/stats`), { next: { revalidate: 60 } });
     if (!res.ok) return null;
     const data = await res.json();
     return data;
@@ -15,7 +15,7 @@ async function getStats() {
 
 async function getBrands() {
   try {
-    const res = await fetch('http://localhost:3000/api/public/brands', { next: { revalidate: 60 } });
+    const res = await fetch((`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/public/brands`), { next: { revalidate: 60 } });
     const data = await res.json();
     return data.data || [];
   } catch (e) {
@@ -55,7 +55,7 @@ export default async function Home() {
                       <a key={item} href={`#${item.toLowerCase()}`} className="text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">{item}</a>
                   ))}
                   <button className="px-6 py-2.5 bg-white text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl">
-                      Guardian Login
+                      Industry / Lab Login
                   </button>
               </div>
           </div>
@@ -76,34 +76,34 @@ export default async function Home() {
           <div className="max-w-7xl mx-auto relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
               <div className="animate-fade-in">
                   <div className="flex gap-4 mb-10">
-                      <TrustSeal label="Active Oversight" />
+                      <TrustSeal label="Safety Checked" />
                       <TrustSeal label="ISO 17025 Certified" />
                   </div>
                   <h1 className="text-7xl md:text-8xl font-black tracking-tighter mb-8 leading-[0.85]">
-                      Sovereign <br />
-                      <span className="text-indigo-400">Health</span> <br />
-                      Intelligence.
+                      Trusted <br />
+                      <span className="text-indigo-400">Safety</span> <br />
+                      For Your Family.
                   </h1>
                   <p className="text-slate-400 text-lg font-medium leading-relaxed max-w-xl mb-12">
-                      Access the world's most rigorous trust registry for daily consumables. 
-                      Every brand listed is verified via real-time laboratory forensics.
+                      Find safe, pure, and tested products for your home. 
+                      Every brand listed here is verified through independent, direct laboratory testing.
                   </p>
                   <div className="flex flex-wrap gap-6">
                       <a href="#registry" className="px-10 py-5 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">
-                          Explore Trust Registry →
+                          Explore Safe Products →
                       </a>
                       <a href="#vigilance" className="px-10 py-5 bg-white/5 border border-white/10 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all">
-                          Report Adverse Event
+                          Report a Health Issue
                       </a>
                   </div>
               </div>
 
               <div className="hidden lg:grid grid-cols-2 gap-6 animate-scale-up">
                   {[
-                      { label: 'Verified Entities', val: stats.verified_companies, icon: '🏛️' },
-                      { label: 'Trusted Brands', val: stats.trusted_brands, icon: '✅' },
-                      { label: 'Safety Signals', val: stats.monitored_events, icon: '📡' },
-                      { label: 'Network Health', val: '99.9%', icon: '🧪' }
+                      { label: 'Verified Companies', val: stats.verified_companies, icon: '🏛️' },
+                      { label: 'Safe Brands', val: stats.trusted_brands, icon: '✅' },
+                      { label: 'Health Issues Reported', val: stats.monitored_events, icon: '📡' },
+                      { label: 'Lab Network Health', val: '99.9%', icon: '🧪' }
                   ].map((s, i) => (
                       <div key={i} className="p-10 rounded-[2.5rem] glass-panel border-white/5 bg-white/[0.02] group hover:bg-white/[0.04] transition-all">
                           <div className="text-3xl mb-4 group-hover:scale-110 transition-transform">{s.icon}</div>
@@ -119,10 +119,10 @@ export default async function Home() {
       <section className="py-32 px-8 bg-slate-950/50">
           <div className="max-w-7xl mx-auto">
               <div className="text-center mb-24">
-                  <h2 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-6">Health Trust Verticals</h2>
-                  <h3 className="text-5xl font-black tracking-tighter mb-6">Designed for Your Protection.</h3>
+                  <h2 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-6">Product Safety Categories</h2>
+                  <h3 className="text-5xl font-black tracking-tighter mb-6">Built to Protect Your Health.</h3>
                   <p className="text-slate-500 max-w-2xl mx-auto font-medium">
-                      Our registry is architected around human health needs. We categorize the industrial complex into clear, actionable safety domains.
+                      We categorize products into clear, simple categories to help you easily find safe options for your family's daily needs.
                   </p>
               </div>
 
@@ -130,8 +130,8 @@ export default async function Home() {
                   {[
                       { title: 'Pantry Purity', desc: 'Flour, oils, and essential nutritional staples.', icon: '🍳', color: 'indigo' },
                       { title: 'Safe Hydration', desc: 'Certified bottled water and hydration sources.', icon: '💧', color: 'blue' },
-                      { title: 'Clinical Confidence', desc: 'Vetted pharmacies and medicinal providers.', icon: '💊', color: 'emerald' },
-                      { title: 'Infant Protection', desc: 'Forensic oversight for baby formulas and nutrition.', icon: '🍼', color: 'rose' }
+                      { title: 'Medicines & Pharma', desc: 'Vetted pharmacies and medicinal providers.', icon: '💊', color: 'emerald' },
+                      { title: 'Infant Protection', desc: 'Strict lab testing for baby formulas and infant nutrition.', icon: '🍼', color: 'rose' }
                   ].map((v, i) => (
                       <div key={i} className="p-8 rounded-[2.5rem] bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all group cursor-pointer">
                           <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-3xl mb-8 group-hover:bg-indigo-500/10 transition-colors">{v.icon}</div>
@@ -150,8 +150,8 @@ export default async function Home() {
           <div className="max-w-7xl mx-auto">
               <div className="flex flex-col lg:flex-row justify-between items-end gap-10 mb-20">
                   <div>
-                      <h2 className="text-5xl font-black tracking-tighter mb-4 text-white">Trust <span className="text-indigo-400">Registry.</span></h2>
-                      <p className="text-slate-500 max-w-xl font-medium">Explore the industrial network. All entries are mapped to real-time laboratory method validation.</p>
+                      <h2 className="text-5xl font-black tracking-tighter mb-4 text-white">Safe <span className="text-indigo-400">Products.</span></h2>
+                      <p className="text-slate-500 max-w-xl font-medium">Browse our directory of verified safe products. Every item is backed by real, independent lab tests.</p>
                   </div>
                   <div className="flex gap-4">
                       <div className="px-6 py-3 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest">
@@ -172,22 +172,22 @@ export default async function Home() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-24 items-center">
                   <div>
                       <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest mb-8">
-                          Public Safety Alert System
+                          Consumer Safety Alerts
                       </div>
-                      <h2 className="text-6xl font-black tracking-tighter mb-8 leading-none">Your Signal <br />Matters.</h2>
+                      <h2 className="text-6xl font-black tracking-tighter mb-8 leading-none">Your Health <br />Matters.</h2>
                       <p className="text-slate-400 text-lg leading-relaxed mb-12 font-medium">
-                          Found a problem with a verified brand? Submit a sovereign signal. 
-                          Our vigilance engine cross-references reports with batch COAs to identify risks early.
+                          Experienced a health issue with a product? Report it here. 
+                          We use your reports to investigate safety risks and hold brands accountable.
                       </p>
                       <button className="px-12 py-5 bg-red-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl shadow-2xl shadow-red-500/20 hover:bg-red-600 transition-all">
-                          Enter Vigilance Portal 🚨
+                          Report a Health Issue 🚨
                       </button>
                   </div>
                   <div className="relative">
                       <div className="absolute inset-0 bg-red-500/10 blur-[100px] rounded-full"></div>
                       <div className="relative glass-panel p-10 border-white/10 bg-black rounded-[3rem]">
                           <div className="flex justify-between items-center mb-10">
-                              <h4 className="text-[10px] font-black text-red-400 uppercase tracking-widest">Live Vigilance Pulse</h4>
+                              <h4 className="text-[10px] font-black text-red-400 uppercase tracking-widest">Recent Safety Alerts</h4>
                               <span className="w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
                           </div>
                           <div className="space-y-6">
@@ -196,8 +196,8 @@ export default async function Home() {
                                       <div className="flex items-center gap-6">
                                           <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
                                           <div>
-                                              <div className="text-xs font-black">Signal #RX-{9420+j}02</div>
-                                              <div className="text-[9px] text-slate-500 uppercase font-black tracking-widest mt-1">Audit Underway</div>
+                                              <div className="text-xs font-black">Report #RX-{9420+j}02</div>
+                                              <div className="text-[9px] text-slate-500 uppercase font-black tracking-widest mt-1">Investigation Started</div>
                                           </div>
                                       </div>
                                       <div className="text-[10px] font-mono text-slate-600">2.{j}h ago</div>

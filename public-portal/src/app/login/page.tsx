@@ -15,19 +15,19 @@ export default function LoginGateway() {
             title: "Laboratory System", 
             desc: "For lab directors, managers, and technicians.",
             icon: <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.691.346a6 6 0 01-3.86.517l-2.388-.477a2 2 0 00-1.022.547l-1.16 1.16a2 2 0 00.447 3.178l2.357 1.178a1 1 0 00.894 0l2.357-1.178a2 2 0 011.788 0l2.357 1.178a1 1 0 00.894 0l2.357-1.178a2 2 0 00.447-3.178l-1.16-1.16z"></path></svg>,
-            link: "http://localhost:5173/login?role=lab"
+            link: (`${process.env.NEXT_PUBLIC_PLATFORM_URL || 'http://localhost:5173'}/login?role=lab`)
           },
           { 
             title: "Company System", 
             desc: "For verified industry partners and procurement.",
             icon: <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>,
-            link: "http://localhost:5173/login?role=client"
+            link: (`${process.env.NEXT_PUBLIC_PLATFORM_URL || 'http://localhost:5173'}/login?role=client`)
           },
           { 
             title: "Professional System", 
             desc: "For certified lab professionals and experts.",
             icon: <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>,
-            link: "http://localhost:5173/login?role=professional"
+            link: (`${process.env.NEXT_PUBLIC_PLATFORM_URL || 'http://localhost:5173'}/login?role=professional`)
           }
         ].map((sys, i) => (
           <a key={i} href={sys.link} className="glass-card p-10 flex flex-col items-center text-center group">

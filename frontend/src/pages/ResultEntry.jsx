@@ -1,6 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import API from "../services/api";
+
+// P1-3: Auto-compute Pass/Fail from spec limit string (ISO 17025 §7.8.3.1)
+// Supports: "MAX 5.0", "MIN 2.0", "6.5 - 8.5", "< 10", "> 2"
+export function computePassFail(value, specLimit) {
+  if (!value || !specLimit) return "N/A";
+  const val = parseFloat(value);
+  if (isNaN(val)) return "N/A";
+  const s = specLimit.trim();
+  const maxMatch = s.match(/^(MAX|≤|<=|<)\s*([\d.]+)/i);
+  if (maxMatch) return val <= parseFloat(maxMatch[2]) ? "Pass" : "Fail";
+  const minMatch = s.match(/^(MIN|≥|>=|>)\s*([\d.]+)/i);
+  if (minMatch) return val >= parseFloat(minMatch[2]) ? "Pass" : "Fail";
+  const rangeMatch = s.match(/([\d.]+)\s*[-–]\s*([\d.]+)/);
+  if (rangeMatch) {
+    const lo = parseFloat(rangeMatch[1]), hi = parseFloat(rangeMatch[2]);
+    return (val >= lo && val <= hi) ? "Pass" : "Fail";
+  }
+  return "N/A";
+}
 
 export default function ResultEntry() {
   const [searchParams] = useSearchParams();
@@ -11,13 +30,20 @@ export default function ResultEntry() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const isClient = user.role === 'client';
 
-  const [rows, setRows] = useState([
-    { parameter_name: "", value: "", unit: "", method_reference: "", measurement_uncertainty: "", specification_limit: "", pass_fail: "N/A", equipment_id: "", positive_control: "", negative_control: "", incubation_time: "", incubation_temp: "", reagent_lot: "" },
-  ]);
+  const emptyRow = () => ({
+    parameter_name: "", value: "", unit: "", method_reference: "", measurement_uncertainty: "",
+    specification_limit: "", pass_fail: "N/A", equipment_id: "",
+    positive_control: "", negative_control: "", incubation_time: "", incubation_temp: "", reagent_lot: "",
+    _mu_from_library: false  // track if MU was auto-filled
+  });
+
+  const [rows, setRows] = useState([emptyRow()]);
   const [existingResults, setExistingResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [equipment, setEquipment] = useState([]);
+  // P1-4: Method library with MU data
+  const [methods, setMethods] = useState([]);
   
   // Amendment Modal State
   const [amendingResult, setAmendingResult] = useState(null);
@@ -46,14 +72,24 @@ export default function ResultEntry() {
     }
   };
 
+  // P1-4: Fetch methods with MU library data
+  const fetchMethods = async () => {
+    if (isClient) return;
+    try {
+      const res = await API.get("/api/methods");
+      setMethods(res.data.data || []);
+    } catch (err) {
+      console.error("Failed to fetch methods");
+    }
+  };
+
   useEffect(() => {
     fetchResults();
     fetchEquipment();
+    fetchMethods();
   }, [sampleId]);
 
-  const addRow = () => {
-    setRows([...rows, { parameter_name: "", value: "", unit: "", method_reference: "", measurement_uncertainty: "", specification_limit: "", pass_fail: "N/A", equipment_id: "", positive_control: "", negative_control: "", incubation_time: "", incubation_temp: "", reagent_lot: "" }]);
-  };
+  const addRow = () => setRows([...rows, emptyRow()]);
 
   const removeRow = (idx) => {
     if (rows.length <= 1) return;
@@ -63,6 +99,28 @@ export default function ResultEntry() {
   const updateRow = (idx, field, val) => {
     const updated = [...rows];
     updated[idx][field] = val;
+
+    // P1-3: Auto-compute Pass/Fail when value or spec limit changes (ISO 17025 §7.8.3.1)
+    if (field === 'value' || field === 'specification_limit') {
+      const v = field === 'value' ? val : updated[idx].value;
+      const s = field === 'specification_limit' ? val : updated[idx].specification_limit;
+      updated[idx].pass_fail = computePassFail(v, s);
+    }
+
+    setRows(updated);
+  };
+
+  // P1-4: When method is selected, auto-populate MU from library (ISO 17025 §7.6)
+  const handleMethodSelect = (idx, methodCode) => {
+    const updated = [...rows];
+    updated[idx].method_reference = methodCode;
+    const method = methods.find(m => m.code === methodCode);
+    if (method?.typical_mu) {
+      updated[idx].measurement_uncertainty = method.typical_mu;
+      updated[idx]._mu_from_library = true;
+    } else {
+      updated[idx]._mu_from_library = false;
+    }
     setRows(updated);
   };
 
@@ -74,16 +132,23 @@ export default function ResultEntry() {
       return;
     }
 
+    // P1-3: Final pass/fail computation before saving
+    const rowsWithPF = validRows.map(row => ({
+      ...row,
+      pass_fail: computePassFail(row.value, row.specification_limit) || row.pass_fail
+    }));
+
     setSaving(true);
     try {
-      for (const row of validRows) {
+      for (const row of rowsWithPF) {
+        const { _mu_from_library, ...data } = row; // strip internal tracking field
         await API.post("/api/results", {
           sample_id: parseInt(sampleId),
-          ...row
+          ...data
         });
       }
-      alert(`${validRows.length} result(s) saved as DRAFT`);
-      setRows([{ parameter_name: "", value: "", unit: "", method_reference: "", measurement_uncertainty: "", specification_limit: "", pass_fail: "N/A", equipment_id: "", positive_control: "", negative_control: "", incubation_time: "", incubation_temp: "", reagent_lot: "" }]);
+      alert(`${rowsWithPF.length} result(s) saved as DRAFT`);
+      setRows([emptyRow()]);
       fetchResults();
     } catch (err) {
       alert(err.response?.data?.message || "Failed to save results");
@@ -366,12 +431,13 @@ export default function ResultEntry() {
               <thead>
                 <tr>
                   <th className="w-1/6">Parameter *</th>
+                  <th>Method (MU Library)</th>
                   <th className="w-1/12">Value *</th>
                   <th className="w-1/12">Unit</th>
                   <th className="w-1/12">MU (±)</th>
-                  <th className="w-1/6">Limits</th>
-                  <th className="w-1/12">Pass/Fail</th>
-                  <th className="w-1/6">Equipment ID</th>
+                  <th className="w-1/6">Spec Limit</th>
+                  <th className="w-1/12">Pass/Fail 🤖</th>
+                  <th className="w-1/6">Equipment</th>
                   <th></th>
                 </tr>
               </thead>
@@ -387,6 +453,31 @@ export default function ResultEntry() {
                         </div>
                       </div>
                     </td>
+                    {/* P1-4: Method selector with MU auto-population */}
+                    <td>
+                      <div className="space-y-1">
+                        <select
+                          className="w-full p-2 rounded bg-white/5 border border-white/10 text-[11px]"
+                          value={row.method_reference}
+                          onChange={(e) => handleMethodSelect(idx, e.target.value)}
+                        >
+                          <option value="">-- Select Method --</option>
+                          {methods.map(m => (
+                            <option key={m.id} value={m.code}>
+                              {m.name} ({m.code}){m.typical_mu ? ` MU:${m.typical_mu}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {!row.method_reference && (
+                          <input className="w-full p-1 text-[10px] rounded bg-white/5 border border-white/10" placeholder="or type method ref" value={row.method_reference} onChange={(e) => updateRow(idx, 'method_reference', e.target.value)} />
+                        )}
+                        {row.method_reference && (
+                          <div className="flex gap-1">
+                            <input className="w-full p-1 text-[9px] font-mono rounded bg-white/5 border border-white/10" placeholder="Lot #" value={row.reagent_lot} onChange={(e) => updateRow(idx, 'reagent_lot', e.target.value)} />
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td>
                       <input required className="w-full p-2 rounded bg-white/5 border border-white/10" placeholder="7.2" value={row.value} onChange={(e) => updateRow(idx, 'value', e.target.value)} />
                     </td>
@@ -394,23 +485,27 @@ export default function ResultEntry() {
                       <input className="w-full p-2 rounded bg-white/5 border border-white/10" placeholder="mg/L" value={row.unit} onChange={(e) => updateRow(idx, 'unit', e.target.value)} />
                     </td>
                     <td>
-                      <input className="w-full p-2 rounded bg-white/5 border border-white/10" placeholder="0.05" value={row.measurement_uncertainty} onChange={(e) => updateRow(idx, 'measurement_uncertainty', e.target.value)} />
-                    </td>
-                    <td>
-                      <div className="space-y-2">
-                        <input className="w-full p-2 rounded bg-white/5 border border-white/10" placeholder="6.5 - 8.5" value={row.specification_limit} onChange={(e) => updateRow(idx, 'specification_limit', e.target.value)} />
-                        <div className="flex gap-2">
-                            <input className="w-1/2 p-1 text-[10px] rounded bg-white/5 border border-white/10" placeholder="Lot #" title="Reagent Lot Number" value={row.reagent_lot} onChange={(e) => updateRow(idx, 'reagent_lot', e.target.value)} />
-                            <input className="w-1/2 p-1 text-[10px] rounded bg-white/5 border border-white/10" placeholder="Method" title="Test Method Ref" value={row.method_reference} onChange={(e) => updateRow(idx, 'method_reference', e.target.value)} />
-                        </div>
+                      {/* P1-4: MU auto-populated from library, manual override still possible */}
+                      <div className="relative">
+                        <input className={`w-full p-2 rounded bg-white/5 border text-[11px] ${row._mu_from_library ? 'border-emerald-500/40 text-emerald-400' : 'border-white/10'}`} placeholder="0.05" value={row.measurement_uncertainty} onChange={(e) => { updateRow(idx, 'measurement_uncertainty', e.target.value); updateRow(idx, '_mu_from_library', false); }} />
+                        {row._mu_from_library && <span className="absolute right-1 top-1 text-[7px] font-black text-emerald-500 uppercase">Library</span>}
                       </div>
                     </td>
                     <td>
-                      <select className="w-full p-2 rounded bg-white/5 border border-white/10" value={row.pass_fail} onChange={(e) => updateRow(idx, 'pass_fail', e.target.value)}>
-                        <option value="N/A">N/A</option>
-                        <option value="Pass">Pass</option>
-                        <option value="Fail">Fail</option>
-                      </select>
+                      <div className="space-y-2">
+                        <input className="w-full p-2 rounded bg-white/5 border border-white/10" placeholder="6.5 - 8.5 or MAX 5.0" value={row.specification_limit} onChange={(e) => updateRow(idx, 'specification_limit', e.target.value)} />
+                      </div>
+                    </td>
+                    {/* P1-3: Auto-computed Pass/Fail (ISO 17025 §7.8.3.1) — shown with indicator */}
+                    <td>
+                      <div className="text-center">
+                        <span className={`px-2 py-1 rounded text-[9px] font-black uppercase ${row.pass_fail === 'Pass' ? 'bg-green-500/20 text-green-400' : row.pass_fail === 'Fail' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-500'}`}>
+                          {row.pass_fail}
+                        </span>
+                        {row.specification_limit && row.value && row.pass_fail === 'N/A' && (
+                          <div className="text-[7px] text-amber-400 mt-0.5">Unrecognized format</div>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <div className="space-y-2">

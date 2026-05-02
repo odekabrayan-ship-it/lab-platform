@@ -29,7 +29,7 @@ export default function ConsumerHub() {
                         <p className="text-slate-500 mt-2 font-medium">Your personal health oversight dashboard.</p>
                     </div>
                     <div className="flex gap-4">
-                        <a href="http://localhost:3001" target="_blank" rel="noreferrer" className="px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all">
+                        <a href={`${import.meta.env.VITE_PORTAL_URL || 'http://localhost:3001'}`} target="_blank" rel="noreferrer" className="px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all">
                             Open Trust Registry →
                         </a>
                         <button className="px-6 py-3 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-red-500/20">

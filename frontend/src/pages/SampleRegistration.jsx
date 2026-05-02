@@ -9,7 +9,10 @@ export default function SampleRegistration() {
 
   const [samples, setSamples] = useState([{ 
       description: "", condition_notes: "", storage_location: "", hazard_flags: "",
-      tests_requested: "", test_specs: "", client_notes: "" 
+      tests_requested: "", test_specs: "", client_notes: "",
+      // P2-4: ISO 17025 §7.4.3 receipt condition fields
+      receipt_temperature: "", transport_condition: "AMBIENT", integrity_status: "OK",
+      integrity_notes: "", required_temp_min: "", required_temp_max: ""
   }]);
   const [storage, setStorage] = useState([]);
   const [requestDetails, setRequestDetails] = useState(null);
@@ -82,7 +85,9 @@ export default function SampleRegistration() {
   const addSampleRow = () => {
     setSamples([...samples, { 
         description: "", condition_notes: "", storage_location: "", hazard_flags: "",
-        tests_requested: requestDetails?.test_description || "", test_specs: "", client_notes: "" 
+        tests_requested: requestDetails?.test_description || "", test_specs: "", client_notes: "",
+        receipt_temperature: "", transport_condition: "AMBIENT", integrity_status: "OK",
+        integrity_notes: "", required_temp_min: "", required_temp_max: ""
     }]);
   };
 
@@ -120,13 +125,24 @@ export default function SampleRegistration() {
     try {
       for (const s of samples) {
         if (!s.description) continue;
-        await API.post("/api/samples", { 
+        const result = await API.post("/api/samples", { 
             test_request_id: requestId, 
             ...batchInfo,
             ...s 
         });
+        // P2-4: After registering, record receipt condition check (ISO 17025 §7.4.3)
+        if (result.data?.data?.id && (s.receipt_temperature || s.integrity_status !== 'OK')) {
+          await API.patch(`/api/samples/${result.data.data.id}/receipt-check`, {
+            receipt_temperature: s.receipt_temperature || null,
+            transport_condition: s.transport_condition,
+            integrity_status: s.integrity_status,
+            integrity_notes: s.integrity_notes,
+            required_temp_min: s.required_temp_min || undefined,
+            required_temp_max: s.required_temp_max || undefined
+          });
+        }
       }
-      alert("All samples registered with full technical metadata.");
+      alert("All samples registered with receipt conditions documented.");
       navigate("/dashboard");
     } catch (err) { alert("Registration failed"); }
     finally { setLoading(false); }
@@ -204,6 +220,7 @@ export default function SampleRegistration() {
                 <th>Condition *</th>
                 <th>Storage</th>
                 <th>Hazards</th>
+                <th title="ISO 17025 §7.4.3">Receipt Temp / Integrity</th>
                 <th className="w-10"></th>
               </tr>
             </thead>
@@ -227,8 +244,49 @@ export default function SampleRegistration() {
                     <select className="w-full p-1 text-[10px] border rounded" value={s.hazard_flags} onChange={e => updateSample(idx, 'hazard_flags', e.target.value)}>
                         <option value="">Safe</option>
                         <option value="TOXIC">Toxic</option>
-                        <option value="BIOLOGICAL">Bio</option>
+                        <option value="BIOLOGICAL">Biological</option>
+                        <option value="RADIOACTIVE">Radioactive</option>
+                        <option value="FLAMMABLE">Flammable</option>
+                        <option value="CORROSIVE">Corrosive</option>
                     </select>
+                  </td>
+                  {/* P2-4: Receipt temperature and integrity status (ISO 17025 §7.4.3) */}
+                  <td>
+                    <div className="space-y-1">
+                      <div className="flex gap-1">
+                        <input
+                          type="number"
+                          step="0.1"
+                          className={`w-1/2 p-1 text-[10px] border rounded ${s.integrity_status === 'COMPROMISED' ? 'border-red-400' : ''}`}
+                          placeholder="°C"
+                          title="Receipt Temperature (°C)"
+                          value={s.receipt_temperature}
+                          onChange={e => updateSample(idx, 'receipt_temperature', e.target.value)}
+                        />
+                        <select
+                          className={`w-1/2 p-1 text-[9px] border rounded ${s.integrity_status === 'COMPROMISED' ? 'border-red-400 bg-red-50' : ''}`}
+                          value={s.integrity_status}
+                          onChange={e => updateSample(idx, 'integrity_status', e.target.value)}
+                        >
+                          <option value="OK">✅ OK</option>
+                          <option value="QUERY_RAISED">⚠️ Query</option>
+                          <option value="COMPROMISED">🚨 Compromised</option>
+                        </select>
+                      </div>
+                      <div className="flex gap-1">
+                        <input type="number" step="0.1" className="w-1/3 p-1 text-[9px] border rounded" placeholder="Min°C" title="Required Min Temp" value={s.required_temp_min} onChange={e => updateSample(idx, 'required_temp_min', e.target.value)} />
+                        <input type="number" step="0.1" className="w-1/3 p-1 text-[9px] border rounded" placeholder="Max°C" title="Required Max Temp" value={s.required_temp_max} onChange={e => updateSample(idx, 'required_temp_max', e.target.value)} />
+                        <select className="w-1/3 p-1 text-[9px] border rounded" value={s.transport_condition} onChange={e => updateSample(idx, 'transport_condition', e.target.value)}>
+                          <option value="AMBIENT">Ambient</option>
+                          <option value="COLD_CHAIN">Cold Chain</option>
+                          <option value="FROZEN">Frozen</option>
+                          <option value="DRY_ICE">Dry Ice</option>
+                        </select>
+                      </div>
+                      {s.integrity_status !== 'OK' && (
+                        <input className="w-full p-1 text-[9px] border rounded border-amber-300" placeholder="Integrity notes..." value={s.integrity_notes} onChange={e => updateSample(idx, 'integrity_notes', e.target.value)} />
+                      )}
+                    </div>
                   </td>
                   <td>
                     <button type="button" onClick={() => setSamples(samples.filter((_, i) => i !== idx))} className="text-red-400 font-bold">✕</button>

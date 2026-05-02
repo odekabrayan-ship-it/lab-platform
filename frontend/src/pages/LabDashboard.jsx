@@ -201,7 +201,7 @@ export default function LabDashboard() {
   const handlePrintLabel = async (id) => {
       try {
           const res = await API.get(`/api/requests/${id}/dispatch-label`);
-          window.open(`http://localhost:3000${res.data.data.file_url}`, '_blank');
+          window.open(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${res.data.data.file_url}`, '_blank');
       } catch (err) { alert("Label generation failed"); }
   };
 
@@ -226,7 +226,7 @@ export default function LabDashboard() {
     try {
       const res = await API.get(`/api/reports/${reportId}/download`);
       const { file_url } = res.data.data;
-      window.open(`http://localhost:3000${file_url}`, '_blank');
+      window.open(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${file_url}`, '_blank');
     } catch (err) {
       alert(err.response?.data?.message || "Download failed");
     }
@@ -333,6 +333,7 @@ export default function LabDashboard() {
 
       {/* ─── OPERATIONAL INTELLIGENCE QUADRANTS ─── */}
       {!isClient && analytics && labTab === "SAMPLES" && (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
           <div className="glass-panel p-6 border-l-4 border-blue-500 bg-blue-500/[0.02]">
             <div className="text-[9px] uppercase font-black text-slate-500 mb-3 tracking-widest">Revenue Velocity</div>
@@ -357,12 +358,44 @@ export default function LabDashboard() {
             <div className="mt-4 text-[10px] font-bold text-emerald-500 uppercase">Bench Capacity: 78%</div>
           </div>
 
-          <div className="glass-panel p-6 border-l-4 border-red-500 bg-red-500/[0.02]">
+          <div className="glass-panel p-6 border-l-4 border-red-500 bg-red-500/[0.02] cursor-pointer hover:bg-red-500/5 transition-all" onClick={() => navigate('/internal-capa')}>
             <div className="text-[9px] uppercase font-black text-slate-500 mb-3 tracking-widest">Vigilance Signal</div>
             <div className="text-3xl font-black text-white tabular-nums">{analytics.quality_events} <span className="text-sm font-bold text-slate-500">Events</span></div>
-            <div className="mt-4 text-[10px] font-bold text-red-500 uppercase">Requires CAPA Review</div>
+            <div className="mt-4 text-[10px] font-bold text-red-500 uppercase">→ CAPA Command Center</div>
           </div>
         </div>
+
+        {/* ─── ISO 17025 QUICK ACTIONS ─── */}
+        <div className="flex gap-3 flex-wrap">
+          <button onClick={() => navigate('/internal-validation')} className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[10px] font-black text-emerald-400 uppercase tracking-widest hover:bg-emerald-500/20 transition-all">
+            🛡️ Validation Queue
+          </button>
+          <button onClick={() => navigate('/internal-capa')} className="flex items-center gap-2 px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-[10px] font-black text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-all">
+            🚨 CAPA Center
+          </button>
+          <button onClick={() => navigate('/control-chart')} className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] font-black text-amber-400 uppercase tracking-widest hover:bg-amber-500/20 transition-all">
+            📈 Control Chart
+          </button>
+          <button onClick={() => navigate('/risk-register')} className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 border border-purple-500/20 rounded-lg text-[10px] font-black text-purple-400 uppercase tracking-widest hover:bg-purple-500/20 transition-all">
+            ⚠️ Risk Register
+          </button>
+          <button onClick={() => navigate('/proficiency-testing')} className="flex items-center gap-2 px-4 py-2 bg-pink-500/10 border border-pink-500/20 rounded-lg text-[10px] font-black text-pink-400 uppercase tracking-widest hover:bg-pink-500/20 transition-all">
+            🎯 Proficiency Testing
+          </button>
+          <button onClick={() => navigate('/document-control')} className="flex items-center gap-2 px-4 py-2 bg-sky-500/10 border border-sky-500/20 rounded-lg text-[10px] font-black text-sky-400 uppercase tracking-widest hover:bg-sky-500/20 transition-all">
+            📁 Document Control
+          </button>
+          <button onClick={() => navigate('/competency-assessment')} className="flex items-center gap-2 px-4 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-[10px] font-black text-indigo-400 uppercase tracking-widest hover:bg-indigo-500/20 transition-all">
+            🎓 Staff Competency
+          </button>
+          <button onClick={() => navigate('/methods')} className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg text-[10px] font-black text-blue-400 uppercase tracking-widest hover:bg-blue-500/20 transition-all">
+            📋 Method Registry
+          </button>
+          <button onClick={() => navigate('/equipment')} className="flex items-center gap-2 px-4 py-2 bg-slate-700/50 border border-white/10 rounded-lg text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-white transition-all">
+            ⚖️ Equipment & Calibration
+          </button>
+        </div>
+        </>
       )}
 
       {/* ─── STATUS VIGILANCE TABS ─── */}
@@ -556,7 +589,7 @@ export default function LabDashboard() {
                               </td>
                               <td>
                                   {r.payment_status === 'PAID' && (
-                                      <button onClick={() => window.open(`http://localhost:3000/api/payments/${r.payment_id}/receipt?token=${localStorage.getItem('token')}`, '_blank')} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white text-[9px] font-black uppercase rounded transition-all">
+                                      <button onClick={() => window.open(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/payments/${r.payment_id}/receipt?token=${localStorage.getItem('token')}`, '_blank')} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white text-[9px] font-black uppercase rounded transition-all">
                                           Receipt
                                       </button>
                                   )}

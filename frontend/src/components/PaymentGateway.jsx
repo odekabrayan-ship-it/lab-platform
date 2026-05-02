@@ -222,7 +222,7 @@ export default function PaymentGateway({ amount, requestId, paymentType, metadat
             <div className="flex gap-3 w-full max-w-xs">
                 <button 
                     onClick={() => {
-                        window.open(`http://localhost:3000/api/payments/${paymentId}/receipt?token=${localStorage.getItem('token')}`, '_blank');
+                        window.open(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/payments/receipt?token=${localStorage.getItem('token')}`, '_blank');
                     }}
                     className="btn-secondary flex-1"
                 >
