@@ -1,7 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const dbPath = path.join(__dirname, 'public_trust.db');
+const dbPath = process.env.PUBLIC_DB_PATH || path.join(__dirname, 'public_trust.db');
 const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {

@@ -1,5 +1,6 @@
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('qualicore.db');
+const dbPath = process.env.DB_PATH || 'qualicore.db';
+const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
     // 1. users
