@@ -1,4 +1,4 @@
-const { dbRun, dbAll, dbGet } = require('./database');
+const { dbRun, dbAll, dbGet } = require('../database');;
 
 class BillingEngine {
     /**
