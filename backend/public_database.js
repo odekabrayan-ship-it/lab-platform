@@ -20,6 +20,8 @@ db.serialize(() => {
         certifications_declared TEXT, -- Curated descriptors
         verification_level INTEGER DEFAULT 1,
         featured_status INTEGER DEFAULT 0,
+        trust_expiry DATE,
+        last_recertified_at DATETIME,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
@@ -32,6 +34,8 @@ db.serialize(() => {
         trust_badge TEXT DEFAULT 'STANDARD', -- STANDARD, FEATURED, PREMIUM
         visibility_status TEXT DEFAULT 'PUBLISHED',
         brand_description TEXT,
+        vigilance_status TEXT DEFAULT 'STABLE',
+        resolution_rate INTEGER DEFAULT 100,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (company_id) REFERENCES public_companies(id)
     )`);
@@ -55,7 +59,28 @@ db.serialize(() => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    // 5. PUBLIC ADVERSE EVENTS
+    db.run(`CREATE TABLE IF NOT EXISTS public_adverse_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        brand_id INTEGER,
+        symptom_type TEXT,
+        severity TEXT,
+        batch_number TEXT,
+        description TEXT,
+        reporter_email TEXT,
+        status TEXT DEFAULT 'PENDING',
+        brand_response TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(brand_id) REFERENCES public_brands(id)
+    )`);
+
     console.log("TRUST REGISTRY DATABASE: Standalone module initialized.");
+
+    // Dynamic Alter commands for backwards compatibility on existing local databases
+    db.run(`ALTER TABLE public_companies ADD COLUMN trust_expiry DATE`, (err) => {});
+    db.run(`ALTER TABLE public_companies ADD COLUMN last_recertified_at DATETIME`, (err) => {});
+    db.run(`ALTER TABLE public_brands ADD COLUMN vigilance_status TEXT DEFAULT 'STABLE'`, (err) => {});
+    db.run(`ALTER TABLE public_brands ADD COLUMN resolution_rate INTEGER DEFAULT 100`, (err) => {});
 });
 
 const dbGet = (query, params) => new Promise((res, rej) => db.get(query, params, (err, row) => err ? rej(err) : res(row)));

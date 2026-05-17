@@ -155,6 +155,12 @@ db.serialize(() => {
         storage_location TEXT,
         hazard_flags TEXT,
         label_printed_at TIMESTAMP, source_company TEXT, source_contact TEXT, tests_requested TEXT, test_specs TEXT, client_notes TEXT, sampling_date DATETIME, sampling_location TEXT, custody_status TEXT DEFAULT 'IN_STORAGE', current_custodian_id INTEGER REFERENCES users(id), updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        receipt_temperature REAL,
+        transport_condition TEXT,
+        integrity_status TEXT DEFAULT 'OK' CHECK(integrity_status IN ('OK', 'COMPROMISED', 'QUERY_RAISED', 'REJECTED')),
+        integrity_notes TEXT,
+        required_temp_min REAL,
+        required_temp_max REAL,
         FOREIGN KEY (test_request_id) REFERENCES test_requests(id) ON DELETE CASCADE,
         FOREIGN KEY (received_by) REFERENCES users(id)
     )`);
@@ -327,6 +333,23 @@ db.serialize(() => {
         description TEXT,
         category TEXT,
         equipment_needed TEXT,
+        typical_mu TEXT,
+        mu_unit TEXT DEFAULT '%',
+        mu_coverage_factor REAL DEFAULT 2,
+        mu_confidence_level TEXT DEFAULT '95%',
+        mu_calculation_method TEXT DEFAULT 'GUM',
+        validation_status TEXT DEFAULT 'PENDING' CHECK(validation_status IN ('PENDING', 'IN_DEVELOPMENT', 'VALIDATED', 'VERIFIED', 'RETIRED')),
+        scope_of_application TEXT,
+        validation_report_url TEXT,
+        linearity_range TEXT,
+        detection_limit TEXT,
+        quantitation_limit TEXT,
+        precision_rsd TEXT,
+        recovery_percent TEXT,
+        bias_percent TEXT,
+        validated_by_name TEXT,
+        validated_by_user_id INTEGER REFERENCES users(id),
+        validated_date DATE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
@@ -539,6 +562,86 @@ db.serialize(() => {
         name TEXT PRIMARY KEY,
         value INTEGER DEFAULT 0
     )`);
+
+    // 31. verification_applications (Enterprise trust requests)
+    db.run(`CREATE TABLE IF NOT EXISTS verification_applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER NOT NULL,
+        tier TEXT NOT NULL CHECK(tier IN ('LEVEL 1', 'LEVEL 2', 'LEVEL 3')),
+        status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED')),
+        target_brands TEXT, 
+        submitted_documents TEXT, 
+        admin_notes TEXT,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at TIMESTAMP,
+        FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+    )`);
+
+    // 32. nonconformances (CAPA ledgers - ISO 17025 §8.7)
+    db.run(`CREATE TABLE IF NOT EXISTS nonconformances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
+        ncr_number TEXT NOT NULL UNIQUE,
+        sample_id INTEGER REFERENCES samples(id),
+        batch_number TEXT,
+        product_description TEXT,
+        issue_description TEXT NOT NULL,
+        source TEXT DEFAULT 'MANUAL' CHECK(source IN ('MANUAL', 'INTERNAL_REVIEW', 'SAMPLE_RECEIPT', 'CLIENT_COMPLAINT', 'AUDIT', 'EXTERNAL_PT')),
+        detected_by INTEGER REFERENCES users(id),
+        priority TEXT DEFAULT 'MEDIUM' CHECK(priority IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+        status TEXT DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'INVESTIGATING', 'RESOLVED', 'CLOSED', 'ESCALATED')),
+        immediate_action TEXT,
+        rca TEXT,
+        corrective_action TEXT,
+        preventive_action TEXT,
+        verification_method TEXT,
+        effectiveness_check_date DATE,
+        owner_id INTEGER REFERENCES users(id),
+        due_date DATE,
+        resolved_by INTEGER REFERENCES users(id),
+        resolved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (lab_id) REFERENCES laboratories(id)
+    )`);
+
+    // 33. environment_logs (ISO 17025 §6.3 Env Control)
+    db.run(`CREATE TABLE IF NOT EXISTS environment_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lab_id INTEGER NOT NULL REFERENCES laboratories(id),
+        location TEXT,
+        temperature REAL,
+        humidity REAL,
+        pressure REAL,
+        logged_by INTEGER REFERENCES users(id),
+        logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // Dynamic alters to gracefully sync existing databases if columns are missing
+    db.run(`ALTER TABLE samples ADD COLUMN receipt_temperature REAL`, (err) => {});
+    db.run(`ALTER TABLE samples ADD COLUMN transport_condition TEXT`, (err) => {});
+    db.run(`ALTER TABLE samples ADD COLUMN integrity_status TEXT DEFAULT 'OK'`, (err) => {});
+    db.run(`ALTER TABLE samples ADD COLUMN integrity_notes TEXT`, (err) => {});
+    db.run(`ALTER TABLE samples ADD COLUMN required_temp_min REAL`, (err) => {});
+    db.run(`ALTER TABLE samples ADD COLUMN required_temp_max REAL`, (err) => {});
+
+    db.run(`ALTER TABLE lab_methods ADD COLUMN typical_mu TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_unit TEXT DEFAULT '%'`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_coverage_factor REAL DEFAULT 2`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_confidence_level TEXT DEFAULT '95%'`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_calculation_method TEXT DEFAULT 'GUM'`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN validation_status TEXT DEFAULT 'PENDING'`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN scope_of_application TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN validation_report_url TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN linearity_range TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN detection_limit TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN quantitation_limit TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN precision_rsd TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN recovery_percent TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN bias_percent TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_name TEXT`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_user_id INTEGER`, (err) => {});
+    db.run(`ALTER TABLE lab_methods ADD COLUMN validated_date DATE`, (err) => {});
 
     console.log("DATABASE: Sovereignty restored. All technical ledgers synchronized.");
 });
