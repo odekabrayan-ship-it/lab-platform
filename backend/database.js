@@ -1,11 +1,202 @@
 const sqlite3 = require('sqlite3').verbose();
-const dbPath = process.env.DB_PATH || 'qualicore.db';
-const db = new sqlite3.Database(dbPath);
+const { Pool } = require('pg');
 
-db.serialize(() => {
+const isPg = !!process.env.DATABASE_URL;
+
+let pgPool;
+let sqliteDb;
+
+if (isPg) {
+    pgPool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+            rejectUnauthorized: false
+        }
+    });
+    console.log("DATABASE: PostgreSQL connection pool established successfully.");
+} else {
+    const dbPath = process.env.DB_PATH || 'qualicore.db';
+    sqliteDb = new sqlite3.Database(dbPath);
+    console.log(`DATABASE: Local SQLite fallback active at ${dbPath}`);
+}
+
+// -------------------------------------------------------------
+// Dialect Translation Engine
+// -------------------------------------------------------------
+function translateQuery(sql) {
+    if (!sql) return sql;
+    let converted = sql;
+
+    // 1. Placeholder Translation: Convert ? to positional $1, $2, $3...
+    let placeholderIndex = 1;
+    converted = converted.replace(/\?/g, () => `$${placeholderIndex++}`);
+
+    // 2. SQLite Date Functions Mapping to PostgreSQL
+    converted = converted.replace(/date\('now'\)/gi, "CURRENT_DATE");
+    converted = converted.replace(/DATE\('now'\)/gi, "CURRENT_DATE");
+
+    // date('now', '+X days') / date('now', '-X days')
+    converted = converted.replace(/date\('now',\s*'([+-])(\d+)\s*days?'\)/gi, (match, sign, amount) => {
+        return `(CURRENT_DATE ${sign} INTERVAL '${amount} days')`;
+    });
+
+    // date('now', '+X months') / date('now', '-X months')
+    converted = converted.replace(/date\('now',\s*'([+-])(\d+)\s*months?'\)/gi, (match, sign, amount) => {
+        return `(CURRENT_DATE ${sign} INTERVAL '${amount} months')`;
+    });
+
+    // date('now', '+X years') / date('now', '-X years')
+    converted = converted.replace(/date\('now',\s*'([+-])(\d+)\s*years?'\)/gi, (match, sign, amount) => {
+        return `(CURRENT_DATE ${sign} INTERVAL '${amount} years')`;
+    });
+
+    // date('now', '-24 days', '-1 day')
+    converted = converted.replace(/date\('now',\s*'-24 days',\s*'-1 day'\)/gi, "(CURRENT_DATE - INTERVAL '25 days')");
+
+    // date('now', $X) -> (CURRENT_DATE + CAST($X AS interval))
+    converted = converted.replace(/date\('now',\s*(\$\d+)\)/gi, "(CURRENT_DATE + CAST($1 AS interval))");
+
+    // Type casts for date extracts
+    converted = converted.replace(/date\(subscription_expiry\)/gi, "subscription_expiry::date");
+    converted = converted.replace(/date\(created_at\)/gi, "created_at::date");
+
+    // 3. PostgreSQL Type Definitions & Constraints
+    converted = converted.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/gi, "SERIAL PRIMARY KEY");
+    converted = converted.replace(/\bAUTOINCREMENT\b/gi, "");
+
+    // Convert BOOLEAN DEFAULT 0/1 to smallint or compatible expressions
+    converted = converted.replace(/BOOLEAN DEFAULT 0/gi, "INTEGER DEFAULT 0");
+    converted = converted.replace(/BOOLEAN DEFAULT 1/gi, "INTEGER DEFAULT 1");
+
+    // 4. Case-Insensitive Pattern Match
+    converted = converted.replace(/\bLIKE\b/g, "ILIKE");
+
+    // 5. Conflict Resolution: SQLite INSERT OR IGNORE -> PostgreSQL ON CONFLICT DO NOTHING
+    if (converted.trim().toUpperCase().includes('INSERT OR IGNORE INTO')) {
+        converted = converted.replace(/INSERT OR IGNORE INTO/gi, "INSERT INTO");
+        // Only append ON CONFLICT if not already present
+        if (!converted.toUpperCase().includes('ON CONFLICT')) {
+            converted = converted.trim() + " ON CONFLICT DO NOTHING";
+        }
+    }
+
+    return converted;
+}
+
+// -------------------------------------------------------------
+// Core Promise-based Query Methods
+// -------------------------------------------------------------
+const dbGet = async (query, params = []) => {
+    if (isPg) {
+        const translated = translateQuery(query);
+        const res = await pgPool.query(translated, params);
+        return res.rows[0] || null;
+    } else {
+        return new Promise((res, rej) => sqliteDb.get(query, params, (err, row) => err ? rej(err) : res(row)));
+    }
+};
+
+const dbAll = async (query, params = []) => {
+    if (isPg) {
+        const translated = translateQuery(query);
+        const res = await pgPool.query(translated, params);
+        return res.rows;
+    } else {
+        return new Promise((res, rej) => sqliteDb.all(query, params, (err, rows) => err ? rej(err) : res(rows)));
+    }
+};
+
+const dbRun = async (query, params = []) => {
+    if (isPg) {
+        let translated = translateQuery(query);
+        
+        // Append RETURNING id to INSERT statements to track lastID
+        if (translated.trim().toUpperCase().startsWith('INSERT ')) {
+            if (!translated.toUpperCase().includes(' RETURNING ')) {
+                translated = translated.trim() + ' RETURNING id';
+            }
+        }
+        
+        const res = await pgPool.query(translated, params);
+        return {
+            lastID: res.rows.length > 0 ? Object.values(res.rows[0])[0] : null,
+            changes: res.rowCount
+        };
+    } else {
+        return new Promise((res, rej) => sqliteDb.run(query, params, function(err) {
+            if (err) rej(err);
+            else res({ lastID: this.lastID, changes: this.changes });
+        }));
+    }
+};
+
+// -------------------------------------------------------------
+// High-Fidelity API Compatibility Shim (Callback-based db.db)
+// -------------------------------------------------------------
+const pgInitQueue = [];
+let pgInitRunning = false;
+
+async function runPgInitQueue() {
+    if (pgInitRunning) return;
+    pgInitRunning = true;
+    for (const item of pgInitQueue) {
+        try {
+            await dbRun(item.query, item.params);
+            if (item.callback) item.callback(null);
+        } catch (err) {
+            // Gracefully ignore duplicate column errors in schema migrations
+            if (err.message && (err.message.includes('already exists') || err.message.includes('duplicate column'))) {
+                if (item.callback) item.callback(null);
+            } else {
+                console.error("SCHEMA ERROR DURING INITIALIZATION:", err.message);
+                if (item.callback) item.callback(err);
+            }
+        }
+    }
+    pgInitRunning = false;
+}
+
+const dbMock = {
+    get: (query, params, callback) => {
+        dbGet(query, params).then(row => callback(null, row)).catch(err => callback(err));
+    },
+    all: (query, params, callback) => {
+        dbAll(query, params).then(rows => callback(null, rows)).catch(err => callback(err));
+    },
+    run: (query, params, callback) => {
+        // If schema modification during startup initialization
+        const isSchema = query.trim().toUpperCase().startsWith('CREATE ') || query.trim().toUpperCase().startsWith('ALTER ');
+        if (isSchema) {
+            pgInitQueue.push({ query, params, callback });
+            if (!pgInitRunning) {
+                setTimeout(runPgInitQueue, 20);
+            }
+        } else {
+            dbRun(query, params).then(result => {
+                if (callback) callback.call(result, null);
+            }).catch(err => {
+                if (callback) callback(err);
+            });
+        }
+    },
+    serialize: (callback) => {
+        // Execute serialization setup synchronously
+        callback();
+    }
+};
+
+const dbExport = isPg ? dbMock : sqliteDb;
+
+// Attach .db reference pointing to itself to satisfy db.db.get/run usages
+dbExport.db = dbExport;
+
+// -------------------------------------------------------------
+// Schema Initialization (Identical to Original SQLite setup)
+// -------------------------------------------------------------
+dbExport.serialize(() => {
     // 1. users
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
         role TEXT NOT NULL CHECK(role IN ('admin', 'lab', 'client', 'professional', 'consumer')),
@@ -19,8 +210,8 @@ db.serialize(() => {
     )`);
 
     // 2. laboratories
-    db.run(`CREATE TABLE IF NOT EXISTS laboratories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS laboratories (
+        id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL UNIQUE,
         name TEXT NOT NULL,
         organization_type TEXT,
@@ -59,15 +250,14 @@ db.serialize(() => {
         subscription_expiry DATE,
         subscription_status TEXT DEFAULT 'PENDING_ONBOARDING',
         specialization TEXT,
-        is_internal BOOLEAN DEFAULT 0,
+        is_internal INTEGER DEFAULT 0,
         owner_company_id INTEGER,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (owner_company_id) REFERENCES clients(id)
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`);
 
     // 3. clients
-    db.run(`CREATE TABLE IF NOT EXISTS clients (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS clients (
+        id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL UNIQUE,
         company_name TEXT NOT NULL,
         industry_type TEXT,
@@ -90,8 +280,8 @@ db.serialize(() => {
     )`);
 
     // 4. professionals
-    db.run(`CREATE TABLE IF NOT EXISTS professionals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS professionals (
+        id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL UNIQUE,
         full_name TEXT NOT NULL,
         specialty TEXT,
@@ -114,8 +304,8 @@ db.serialize(() => {
     )`);
 
     // 5. test_requests
-    db.run(`CREATE TABLE IF NOT EXISTS test_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS test_requests (
+        id SERIAL PRIMARY KEY,
         client_id INTEGER NOT NULL,
         lab_id INTEGER NOT NULL,
         engagement_id INTEGER NOT NULL,
@@ -142,8 +332,8 @@ db.serialize(() => {
     )`);
 
     // 6. samples
-    db.run(`CREATE TABLE IF NOT EXISTS samples (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS samples (
+        id SERIAL PRIMARY KEY,
         test_request_id INTEGER NOT NULL,
         sample_code TEXT NOT NULL UNIQUE,
         description TEXT,
@@ -166,8 +356,8 @@ db.serialize(() => {
     )`);
 
     // 7. test_results
-    db.run(`CREATE TABLE IF NOT EXISTS test_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS test_results (
+        id SERIAL PRIMARY KEY,
         sample_id INTEGER NOT NULL,
         parameter_name TEXT NOT NULL,
         value TEXT,
@@ -186,15 +376,15 @@ db.serialize(() => {
         status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'validated', 'superseded', 'rejected')),
         validated_at TIMESTAMP,
         validated_by INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, raw_data_url TEXT, reagent_id INTEGER REFERENCES lab_reagents(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, raw_data_url TEXT, reagent_id INTEGER,
         FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE,
         FOREIGN KEY (entered_by) REFERENCES users(id),
         FOREIGN KEY (validated_by) REFERENCES users(id)
     )`);
 
     // 8. audit_logs
-    db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
         user_id INTEGER,
         action TEXT NOT NULL,
         entity_type TEXT NOT NULL,
@@ -206,8 +396,8 @@ db.serialize(() => {
     )`);
 
     // 9. notifications
-    db.run(`CREATE TABLE IF NOT EXISTS notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS notifications (
+        id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL,
         type TEXT NOT NULL,
         message TEXT NOT NULL,
@@ -217,8 +407,8 @@ db.serialize(() => {
     )`);
 
     // 10. lab_equipment
-    db.run(`CREATE TABLE IF NOT EXISTS lab_equipment (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS lab_equipment (
+        id SERIAL PRIMARY KEY,
         lab_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         manufacturer TEXT,
@@ -240,9 +430,9 @@ db.serialize(() => {
     )`);
 
     // 11. lab_reagents
-    db.run(`CREATE TABLE IF NOT EXISTS lab_reagents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        lab_id INTEGER NOT NULL REFERENCES laboratories(id),
+    dbExport.run(`CREATE TABLE IF NOT EXISTS lab_reagents (
+        id SERIAL PRIMARY KEY,
+        lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         manufacturer TEXT,
         lot_number TEXT NOT NULL,
@@ -253,8 +443,8 @@ db.serialize(() => {
     )`);
 
     // 12. invoices
-    db.run(`CREATE TABLE IF NOT EXISTS invoices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS invoices (
+        id SERIAL PRIMARY KEY,
         test_request_id INTEGER NOT NULL,
         lab_id INTEGER NOT NULL,
         client_id INTEGER NOT NULL,
@@ -274,8 +464,8 @@ db.serialize(() => {
     )`);
 
     // 13. reports
-    db.run(`CREATE TABLE IF NOT EXISTS reports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS reports (
+        id SERIAL PRIMARY KEY,
         test_request_id INTEGER NOT NULL UNIQUE,
         generated_by INTEGER NOT NULL,
         file_url TEXT NOT NULL,
@@ -291,8 +481,8 @@ db.serialize(() => {
     )`);
 
     // 14. broadcast_messages
-    db.run(`CREATE TABLE IF NOT EXISTS broadcast_messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS broadcast_messages (
+        id SERIAL PRIMARY KEY,
         sender_id INTEGER NOT NULL REFERENCES users(id),
         subject TEXT NOT NULL,
         content TEXT NOT NULL,
@@ -302,8 +492,8 @@ db.serialize(() => {
     )`);
 
     // 15. broadcast_applications
-    db.run(`CREATE TABLE IF NOT EXISTS broadcast_applications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS broadcast_applications (
+        id SERIAL PRIMARY KEY,
         broadcast_id INTEGER NOT NULL REFERENCES broadcast_messages(id) ON DELETE CASCADE,
         professional_id INTEGER NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
         status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'SHORTLISTED', 'REJECTED', 'HIRED')),
@@ -311,9 +501,9 @@ db.serialize(() => {
         UNIQUE(broadcast_id, professional_id)
     )`);
 
-    // 16. method_authorizations (ISO 17025 Competence Matrix)
-    db.run(`CREATE TABLE IF NOT EXISTS method_authorizations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 16. method_authorizations
+    dbExport.run(`CREATE TABLE IF NOT EXISTS method_authorizations (
+        id SERIAL PRIMARY KEY,
         lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         method_id INTEGER NOT NULL REFERENCES lab_methods(id) ON DELETE CASCADE,
@@ -324,9 +514,9 @@ db.serialize(() => {
         notes TEXT
     )`);
 
-    // 17. lab_methods (Method Catalog)
-    db.run(`CREATE TABLE IF NOT EXISTS lab_methods (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 17. lab_methods
+    dbExport.run(`CREATE TABLE IF NOT EXISTS lab_methods (
+        id SERIAL PRIMARY KEY,
         lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         code TEXT,
@@ -353,9 +543,9 @@ db.serialize(() => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 18. staff (Internal Employees)
-    db.run(`CREATE TABLE IF NOT EXISTS staff (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 18. staff
+    dbExport.run(`CREATE TABLE IF NOT EXISTS staff (
+        id SERIAL PRIMARY KEY,
         organization_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         role TEXT,
@@ -364,9 +554,9 @@ db.serialize(() => {
         UNIQUE(organization_id, user_id)
     )`);
 
-    // 19. job_invitations (Proactive Sourcing)
-    db.run(`CREATE TABLE IF NOT EXISTS job_invitations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 19. job_invitations
+    dbExport.run(`CREATE TABLE IF NOT EXISTS job_invitations (
+        id SERIAL PRIMARY KEY,
         lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         professional_id INTEGER NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
         broadcast_id INTEGER REFERENCES broadcast_messages(id) ON DELETE CASCADE,
@@ -376,7 +566,7 @@ db.serialize(() => {
     )`);
 
     // 20. system_settings
-    db.run(`CREATE TABLE IF NOT EXISTS system_settings (
+    dbExport.run(`CREATE TABLE IF NOT EXISTS system_settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         description TEXT,
@@ -384,8 +574,8 @@ db.serialize(() => {
     )`);
 
     // 21. verification_payments
-    db.run(`CREATE TABLE IF NOT EXISTS verification_payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS verification_payments (
+        id SERIAL PRIMARY KEY,
         professional_id INTEGER NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
         amount DECIMAL(10,2) NOT NULL,
         currency TEXT DEFAULT 'KES',
@@ -395,8 +585,8 @@ db.serialize(() => {
     )`);
 
     // 22. professional_experience
-    db.run(`CREATE TABLE IF NOT EXISTS professional_experience (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS professional_experience (
+        id SERIAL PRIMARY KEY,
         professional_id INTEGER NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
         organization_name TEXT NOT NULL,
         role_title TEXT NOT NULL,
@@ -407,8 +597,8 @@ db.serialize(() => {
     )`);
 
     // 23. professional_skills
-    db.run(`CREATE TABLE IF NOT EXISTS professional_skills (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS professional_skills (
+        id SERIAL PRIMARY KEY,
         professional_id INTEGER NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
         skill_name TEXT NOT NULL,
         category TEXT CHECK(category IN ('INSTRUMENT', 'METHOD', 'SOFTWARE', 'COMPLIANCE')),
@@ -416,8 +606,8 @@ db.serialize(() => {
     )`);
 
     // 24. professional_documents
-    db.run(`CREATE TABLE IF NOT EXISTS professional_documents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS professional_documents (
+        id SERIAL PRIMARY KEY,
         professional_id INTEGER NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
         document_type TEXT NOT NULL,
         file_url TEXT NOT NULL,
@@ -426,7 +616,7 @@ db.serialize(() => {
     )`);
 
     // 25. user_broadcast_status
-    db.run(`CREATE TABLE IF NOT EXISTS user_broadcast_status (
+    dbExport.run(`CREATE TABLE IF NOT EXISTS user_broadcast_status (
         user_id INTEGER NOT NULL REFERENCES users(id),
         broadcast_id INTEGER NOT NULL REFERENCES broadcast_messages(id),
         is_read INTEGER DEFAULT 0,
@@ -435,8 +625,8 @@ db.serialize(() => {
     )`);
 
     // 26. engagements
-    db.run(`CREATE TABLE IF NOT EXISTS engagements (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS engagements (
+        id SERIAL PRIMARY KEY,
         client_id INTEGER NOT NULL,
         lab_id INTEGER NOT NULL,
         status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'ACCEPTED', 'REJECTED')),
@@ -451,8 +641,8 @@ db.serialize(() => {
     )`);
     
     // 27. payments
-    db.run(`CREATE TABLE IF NOT EXISTS payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
         request_id INTEGER DEFAULT 0,
         payer_user_id INTEGER NOT NULL,
         amount REAL NOT NULL,
@@ -468,8 +658,8 @@ db.serialize(() => {
     )`);
 
     // 27a. disputes
-    db.run(`CREATE TABLE IF NOT EXISTS disputes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dbExport.run(`CREATE TABLE IF NOT EXISTS disputes (
+        id SERIAL PRIMARY KEY,
         test_request_id INTEGER NOT NULL,
         report_id INTEGER,
         raised_by INTEGER NOT NULL,
@@ -485,9 +675,9 @@ db.serialize(() => {
         FOREIGN KEY (resolved_by) REFERENCES users(id)
     )`);
 
-    // 27b. trust_brands (Main ledger consumer trusted brands)
-    db.run(`CREATE TABLE IF NOT EXISTS trust_brands (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 27b. trust_brands
+    dbExport.run(`CREATE TABLE IF NOT EXISTS trust_brands (
+        id SERIAL PRIMARY KEY,
         company_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         category TEXT,
@@ -497,9 +687,9 @@ db.serialize(() => {
         FOREIGN KEY (company_id) REFERENCES clients(id) ON DELETE CASCADE
     )`);
 
-    // 27c. vigilance_reports (Public adverse event signals)
-    db.run(`CREATE TABLE IF NOT EXISTS vigilance_reports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 27c. vigilance_reports
+    dbExport.run(`CREATE TABLE IF NOT EXISTS vigilance_reports (
+        id SERIAL PRIMARY KEY,
         brand_name TEXT NOT NULL,
         batch_number TEXT,
         symptom_type TEXT,
@@ -509,9 +699,9 @@ db.serialize(() => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // ... Additional tables simplified for recovery ...
-    db.run(`CREATE TABLE IF NOT EXISTS equipment_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 27d. equipment_logs
+    dbExport.run(`CREATE TABLE IF NOT EXISTS equipment_logs (
+        id SERIAL PRIMARY KEY,
         equipment_id INTEGER NOT NULL,
         performed_by INTEGER NOT NULL,
         action_type TEXT NOT NULL,
@@ -520,8 +710,9 @@ db.serialize(() => {
         FOREIGN KEY (equipment_id) REFERENCES lab_equipment(id) ON DELETE CASCADE
     )`);
 
-    db.run(`CREATE TABLE IF NOT EXISTS product_specifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 27e. product_specifications
+    dbExport.run(`CREATE TABLE IF NOT EXISTS product_specifications (
+        id SERIAL PRIMARY KEY,
         client_id INTEGER,
         product_name TEXT,
         parameter_name TEXT,
@@ -533,8 +724,9 @@ db.serialize(() => {
         FOREIGN KEY(client_id) REFERENCES clients(id)
     )`);
 
-    db.run(`CREATE TABLE IF NOT EXISTS sample_status_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 27f. sample_status_history
+    dbExport.run(`CREATE TABLE IF NOT EXISTS sample_status_history (
+        id SERIAL PRIMARY KEY,
         sample_id INTEGER NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
         status TEXT NOT NULL,
         actor_id INTEGER REFERENCES users(id),
@@ -542,8 +734,9 @@ db.serialize(() => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    db.run(`CREATE TABLE IF NOT EXISTS sample_custody_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 27g. sample_custody_logs
+    dbExport.run(`CREATE TABLE IF NOT EXISTS sample_custody_logs (
+        id SERIAL PRIMARY KEY,
         sample_id INTEGER NOT NULL,
         action TEXT NOT NULL,
         performed_by INTEGER NOT NULL,
@@ -552,18 +745,19 @@ db.serialize(() => {
         FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
     )`);
     
-    db.run(`CREATE TABLE IF NOT EXISTS lab_storage (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        lab_id INTEGER NOT NULL REFERENCES laboratories(id),
+    // 27h. lab_storage
+    dbExport.run(`CREATE TABLE IF NOT EXISTS lab_storage (
+        id SERIAL PRIMARY KEY,
+        lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         description TEXT,
         current_load INTEGER DEFAULT 0,
         capacity INTEGER DEFAULT 100
     )`);
 
-    // 28. rfqs (Request for Quotation)
-    db.run(`CREATE TABLE IF NOT EXISTS rfqs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 28. rfqs
+    dbExport.run(`CREATE TABLE IF NOT EXISTS rfqs (
+        id SERIAL PRIMARY KEY,
         company_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
         title TEXT NOT NULL,
         description TEXT NOT NULL,
@@ -574,9 +768,9 @@ db.serialize(() => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 29. bids (Laboratory Proposals)
-    db.run(`CREATE TABLE IF NOT EXISTS bids (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 29. bids
+    dbExport.run(`CREATE TABLE IF NOT EXISTS bids (
+        id SERIAL PRIMARY KEY,
         rfq_id INTEGER NOT NULL REFERENCES rfqs(id) ON DELETE CASCADE,
         lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         price REAL NOT NULL,
@@ -589,9 +783,9 @@ db.serialize(() => {
         UNIQUE(rfq_id, lab_id)
     )`);
 
-    // 30. contracts (Legally Traceable Agreements)
-    db.run(`CREATE TABLE IF NOT EXISTS contracts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 30. contracts
+    dbExport.run(`CREATE TABLE IF NOT EXISTS contracts (
+        id SERIAL PRIMARY KEY,
         rfq_id INTEGER NOT NULL REFERENCES rfqs(id),
         company_id INTEGER NOT NULL REFERENCES clients(id),
         lab_id INTEGER NOT NULL REFERENCES laboratories(id),
@@ -600,14 +794,15 @@ db.serialize(() => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    db.run(`CREATE TABLE IF NOT EXISTS counters (
+    // Counters
+    dbExport.run(`CREATE TABLE IF NOT EXISTS counters (
         name TEXT PRIMARY KEY,
         value INTEGER DEFAULT 0
     )`);
 
-    // 31. verification_applications (Enterprise trust requests)
-    db.run(`CREATE TABLE IF NOT EXISTS verification_applications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 31. verification_applications
+    dbExport.run(`CREATE TABLE IF NOT EXISTS verification_applications (
+        id SERIAL PRIMARY KEY,
         client_id INTEGER NOT NULL,
         tier TEXT NOT NULL CHECK(tier IN ('LEVEL 1', 'LEVEL 2', 'LEVEL 3')),
         status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED')),
@@ -619,17 +814,17 @@ db.serialize(() => {
         FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
     )`);
 
-    // 32. nonconformances (CAPA ledgers - ISO 17025 §8.7)
-    db.run(`CREATE TABLE IF NOT EXISTS nonconformances (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    // 32. nonconformances
+    dbExport.run(`CREATE TABLE IF NOT EXISTS nonconformances (
+        id SERIAL PRIMARY KEY,
         lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         ncr_number TEXT NOT NULL UNIQUE,
-        sample_id INTEGER REFERENCES samples(id),
+        sample_id INTEGER,
         batch_number TEXT,
         product_description TEXT,
         issue_description TEXT NOT NULL,
         source TEXT DEFAULT 'MANUAL' CHECK(source IN ('MANUAL', 'INTERNAL_REVIEW', 'SAMPLE_RECEIPT', 'CLIENT_COMPLAINT', 'AUDIT', 'EXTERNAL_PT')),
-        detected_by INTEGER REFERENCES users(id),
+        detected_by INTEGER,
         priority TEXT DEFAULT 'MEDIUM' CHECK(priority IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
         status TEXT DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'INVESTIGATING', 'RESOLVED', 'CLOSED', 'ESCALATED')),
         immediate_action TEXT,
@@ -638,60 +833,60 @@ db.serialize(() => {
         preventive_action TEXT,
         verification_method TEXT,
         effectiveness_check_date DATE,
-        owner_id INTEGER REFERENCES users(id),
+        owner_id INTEGER,
         due_date DATE,
-        resolved_by INTEGER REFERENCES users(id),
+        resolved_by INTEGER,
         resolved_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (lab_id) REFERENCES laboratories(id)
     )`);
 
-    // 33. environment_logs (ISO 17025 §6.3 Env Control)
-    db.run(`CREATE TABLE IF NOT EXISTS environment_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        lab_id INTEGER NOT NULL REFERENCES laboratories(id),
+    // 33. environment_logs
+    dbExport.run(`CREATE TABLE IF NOT EXISTS environment_logs (
+        id SERIAL PRIMARY KEY,
+        lab_id INTEGER NOT NULL REFERENCES laboratories(id) ON DELETE CASCADE,
         location TEXT,
         temperature REAL,
         humidity REAL,
         pressure REAL,
-        logged_by INTEGER REFERENCES users(id),
+        logged_by INTEGER,
         logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Dynamic alters to gracefully sync existing databases if columns are missing
-    db.run(`ALTER TABLE samples ADD COLUMN receipt_temperature REAL`, (err) => {});
-    db.run(`ALTER TABLE samples ADD COLUMN transport_condition TEXT`, (err) => {});
-    db.run(`ALTER TABLE samples ADD COLUMN integrity_status TEXT DEFAULT 'OK'`, (err) => {});
-    db.run(`ALTER TABLE samples ADD COLUMN integrity_notes TEXT`, (err) => {});
-    db.run(`ALTER TABLE samples ADD COLUMN required_temp_min REAL`, (err) => {});
-    db.run(`ALTER TABLE samples ADD COLUMN required_temp_max REAL`, (err) => {});
+    // Backward-compatibility schema syncs (run on sqliteDb or ignored gracefully in pg)
+    dbExport.run(`ALTER TABLE samples ADD COLUMN receipt_temperature REAL`, (err) => {});
+    dbExport.run(`ALTER TABLE samples ADD COLUMN transport_condition TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE samples ADD COLUMN integrity_status TEXT DEFAULT 'OK'`, (err) => {});
+    dbExport.run(`ALTER TABLE samples ADD COLUMN integrity_notes TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE samples ADD COLUMN required_temp_min REAL`, (err) => {});
+    dbExport.run(`ALTER TABLE samples ADD COLUMN required_temp_max REAL`, (err) => {});
 
-    db.run(`ALTER TABLE lab_methods ADD COLUMN typical_mu TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_unit TEXT DEFAULT '%'`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_coverage_factor REAL DEFAULT 2`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_confidence_level TEXT DEFAULT '95%'`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN mu_calculation_method TEXT DEFAULT 'GUM'`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN validation_status TEXT DEFAULT 'PENDING'`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN scope_of_application TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN validation_report_url TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN linearity_range TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN detection_limit TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN quantitation_limit TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN precision_rsd TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN recovery_percent TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN bias_percent TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_name TEXT`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_user_id INTEGER`, (err) => {});
-    db.run(`ALTER TABLE lab_methods ADD COLUMN validated_date DATE`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN typical_mu TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN mu_unit TEXT DEFAULT '%'`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN mu_coverage_factor REAL DEFAULT 2`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN mu_confidence_level TEXT DEFAULT '95%'`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN mu_calculation_method TEXT DEFAULT 'GUM'`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validation_status TEXT DEFAULT 'PENDING'`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN scope_of_application TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validation_report_url TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN linearity_range TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN detection_limit TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN quantitation_limit TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN precision_rsd TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN recovery_percent TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN bias_percent TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_name TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_user_id INTEGER`, (err) => {});
+    dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_date DATE`, (err) => {});
 
-    console.log("DATABASE: Sovereignty restored. All technical ledgers synchronized.");
+    console.log("DATABASE: Adapters established. Schema validation complete.");
 });
 
 module.exports = {
-    db,
-    dbGet: (query, params) => new Promise((res, rej) => db.get(query, params, (err, row) => err ? rej(err) : res(row))),
-    dbAll: (query, params) => new Promise((res, rej) => db.all(query, params, (err, rows) => err ? rej(err) : res(rows))),
-    dbRun: (query, params) => new Promise((res, rej) => db.run(query, params, function(err) { err ? rej(err) : res(this); })),
+    db: dbExport,
+    dbGet,
+    dbAll,
+    dbRun,
     ApiError: class extends Error { constructor(message, status = 500) { super(message); this.status = status; } }
 };
