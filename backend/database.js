@@ -467,6 +467,48 @@ db.serialize(() => {
         FOREIGN KEY (payer_user_id) REFERENCES users(id)
     )`);
 
+    // 27a. disputes
+    db.run(`CREATE TABLE IF NOT EXISTS disputes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        test_request_id INTEGER NOT NULL,
+        report_id INTEGER,
+        raised_by INTEGER NOT NULL,
+        dispute_type TEXT NOT NULL CHECK(dispute_type IN ('RESULT_CHALLENGE','RETEST_REQUEST','DELIVERY_DELAY','BILLING_DISPUTE')),
+        description TEXT NOT NULL,
+        status TEXT DEFAULT 'OPEN' CHECK(status IN ('OPEN','UNDER_REVIEW','RESOLVED','CLOSED')),
+        resolution_notes TEXT,
+        resolved_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP,
+        FOREIGN KEY (test_request_id) REFERENCES test_requests(id),
+        FOREIGN KEY (raised_by) REFERENCES users(id),
+        FOREIGN KEY (resolved_by) REFERENCES users(id)
+    )`);
+
+    // 27b. trust_brands (Main ledger consumer trusted brands)
+    db.run(`CREATE TABLE IF NOT EXISTS trust_brands (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT,
+        trust_badge TEXT DEFAULT 'STANDARD',
+        brand_description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES clients(id) ON DELETE CASCADE
+    )`);
+
+    // 27c. vigilance_reports (Public adverse event signals)
+    db.run(`CREATE TABLE IF NOT EXISTS vigilance_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        brand_name TEXT NOT NULL,
+        batch_number TEXT,
+        symptom_type TEXT,
+        description TEXT NOT NULL,
+        severity TEXT DEFAULT 'MEDIUM',
+        status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'RESOLVED', 'CLOSED')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     // ... Additional tables simplified for recovery ...
     db.run(`CREATE TABLE IF NOT EXISTS equipment_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -77,9 +77,10 @@ async function runEcosystemLifecycle() {
                 if (err) reject(err);
                 db.run(`UPDATE samples SET status = 'CERTIFIED' WHERE id = ?`, [sample.id], (err2) => {
                     if (err2) reject(err2);
-                    db.run(`INSERT INTO reports (test_request_id, generated_by, file_url, report_number, status) VALUES (?, 24, '/reports/COA_992.pdf', 'COA-2026-992', 'generated')`, [trId], (err3) => {
+                    const reportNo = `COA-2026-${trId}-${Math.floor(Math.random() * 1000)}`;
+                    db.run(`INSERT INTO reports (test_request_id, generated_by, file_url, report_number, status) VALUES (?, 24, '/reports/COA_992.pdf', ?, 'generated')`, [trId, reportNo], (err3) => {
                         if (err3) reject(err3);
-                        console.log(">> Analytical Results Validated. Certificate of Analysis (COA-2026-992) Released.");
+                        console.log(`>> Analytical Results Validated. Certificate of Analysis (${reportNo}) Released.`);
                         resolve();
                     });
                 });
@@ -89,16 +90,16 @@ async function runEcosystemLifecycle() {
         // 6. DISPUTE RESOLUTION (COMPLAINT)
         console.log("\n[PHASE 6] Post-Analytical Oversight (Complaint Flow)...");
         const complaintId = await new Promise((resolve, reject) => {
-            db.run(`INSERT INTO complaints (user_id, entity_type, entity_id, subject, description, status) VALUES (?, 'REPORT', 1, 'CoA Accuracy Variance', 'Significant variance in sugar content vs internal production logs.', 'OPEN')`, [industryUserId], function(err) {
+            db.run(`INSERT INTO disputes (test_request_id, report_id, raised_by, dispute_type, description, status) VALUES (?, 1, ?, 'RESULT_CHALLENGE', 'Significant variance in sugar content vs internal production logs.', 'OPEN')`, [trId, industryUserId], function(err) {
                 if (err) reject(err);
                 resolve(this.lastID);
             });
         });
-        console.log(`>> Industry lodged professional complaint: ID ${complaintId} regarding CoA accuracy.`);
+        console.log(`>> Industry lodged professional complaint (Dispute): ID ${complaintId} regarding CoA accuracy.`);
 
         // Resolution
         await new Promise((resolve, reject) => {
-            db.run(`UPDATE complaints SET status = 'RESOLVED', resolution_notes = 'Re-calibration of refractometer performed. Batch re-tested. Variance within tolerance (0.2%). No further action required.', resolved_at = CURRENT_TIMESTAMP WHERE id = ?`, [complaintId], (err) => {
+            db.run(`UPDATE disputes SET status = 'RESOLVED', resolution_notes = 'Re-calibration of refractometer performed. Batch re-tested. Variance within tolerance (0.2%). No further action required.', resolved_at = CURRENT_TIMESTAMP WHERE id = ?`, [complaintId], (err) => {
                 if (err) reject(err);
                 console.log(">> Laboratory resolved complaint with forensic re-testing evidence.");
                 resolve();
