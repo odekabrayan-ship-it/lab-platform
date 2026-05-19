@@ -58,6 +58,15 @@ function translateQuery(sql) {
     converted = converted.replace(/date\(trust_expiry\)/gi, "trust_expiry::date");
     converted = converted.replace(/date\(created_at\)/gi, "created_at::date");
 
+    // SQLite datetime functions -> PostgreSQL equivalents
+    converted = converted.replace(/datetime\('now',\s*'([+-])(\d+)\s*days?'\)/gi, (match, sign, amount) => {
+        return `(NOW() ${sign} INTERVAL '${amount} days')`;
+    });
+    converted = converted.replace(/datetime\('now',\s*'([+-])(\d+)\s*hours?'\)/gi, (match, sign, amount) => {
+        return `(NOW() ${sign} INTERVAL '${amount} hours')`;
+    });
+    converted = converted.replace(/datetime\('now'\)/gi, "NOW()");
+
     // 3. PostgreSQL Type Definitions & Constraints
     converted = converted.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/gi, "SERIAL PRIMARY KEY");
     converted = converted.replace(/\bAUTOINCREMENT\b/gi, "");
