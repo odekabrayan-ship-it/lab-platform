@@ -136,6 +136,23 @@ const dbRun = async (query, params = []) => {
 const pgInitQueue = [];
 let pgInitRunning = false;
 
+function normalizeArgs(params, callback) {
+    let normalizedParams = [];
+    let normalizedCallback = null;
+
+    if (typeof params === 'function') {
+        normalizedCallback = params;
+        normalizedParams = [];
+    } else if (params !== undefined && params !== null) {
+        normalizedParams = Array.isArray(params) ? params : [params];
+        normalizedCallback = callback;
+    } else {
+        normalizedCallback = callback;
+    }
+
+    return { params: normalizedParams, callback: normalizedCallback };
+}
+
 async function runPgInitQueue() {
     if (pgInitRunning) return;
     pgInitRunning = true;
@@ -158,25 +175,33 @@ async function runPgInitQueue() {
 
 const dbMock = {
     get: (query, params, callback) => {
-        dbGet(query, params).then(row => callback(null, row)).catch(err => callback(err));
+        const normalized = normalizeArgs(params, callback);
+        dbGet(query, normalized.params)
+            .then(row => { if (normalized.callback) normalized.callback(null, row); })
+            .catch(err => { if (normalized.callback) normalized.callback(err); });
     },
     all: (query, params, callback) => {
-        dbAll(query, params).then(rows => callback(null, rows)).catch(err => callback(err));
+        const normalized = normalizeArgs(params, callback);
+        dbAll(query, normalized.params)
+            .then(rows => { if (normalized.callback) normalized.callback(null, rows); })
+            .catch(err => { if (normalized.callback) normalized.callback(err); });
     },
     run: (query, params, callback) => {
-        // If schema modification during startup initialization
+        const normalized = normalizeArgs(params, callback);
         const isSchema = query.trim().toUpperCase().startsWith('CREATE ') || query.trim().toUpperCase().startsWith('ALTER ');
         if (isSchema) {
-            pgInitQueue.push({ query, params, callback });
+            pgInitQueue.push({ query, params: normalized.params, callback: normalized.callback });
             if (!pgInitRunning) {
                 setTimeout(runPgInitQueue, 20);
             }
         } else {
-            dbRun(query, params).then(result => {
-                if (callback) callback.call(result, null);
-            }).catch(err => {
-                if (callback) callback(err);
-            });
+            dbRun(query, normalized.params)
+                .then(result => {
+                    if (normalized.callback) normalized.callback.call(result, null);
+                })
+                .catch(err => {
+                    if (normalized.callback) normalized.callback(err);
+                });
         }
     },
     serialize: (callback) => {
