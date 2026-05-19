@@ -24,7 +24,32 @@ const trustRecertService = require('./services/TrustRecertificationService');
 const vigilanceEngine = require('./services/VigilanceEngine');
 
 const app = express();
-app.use(cors());
+const allowedOrigins = [
+    'https://lab-platform-portal-s4oj.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000'
+];
+
+if (process.env.ALLOWED_ORIGINS) {
+    process.env.ALLOWED_ORIGINS.split(',').forEach(origin => {
+        const trimmed = origin.trim();
+        if (trimmed && !allowedOrigins.includes(trimmed)) {
+            allowedOrigins.push(trimmed);
+        }
+    });
+}
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey_qualicore_mvp';
