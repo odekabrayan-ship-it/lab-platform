@@ -22,7 +22,7 @@ class VigilanceEngine {
                 FROM public_adverse_events
                 WHERE created_at > datetime('now', '-3 days')
                 GROUP BY brand_id
-                HAVING report_count >= 5
+                HAVING COUNT(*) >= 5
             `);
 
             for (const spike of spikes) {
