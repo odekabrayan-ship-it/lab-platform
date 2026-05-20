@@ -58,6 +58,7 @@ import ManagerWorkspace from "./pages/ManagerWorkspace";
 import AdminDirectory from "./pages/AdminDirectory";
 import AdminRegistry from "./pages/AdminRegistry";
 import AdminAccreditation from "./pages/AdminAccreditation";
+import AdminTreasury from "./pages/AdminTreasury";
 import QualityLedger from "./pages/QualityLedger";
 import ControlChart from "./pages/ControlChart";
 import RiskRegister from "./pages/RiskRegister";
@@ -73,8 +74,18 @@ import OversightSentinel from "./components/OversightSentinel";
 import './index.css';
 
 function App() {
-  const isAuthenticated = !!localStorage.getItem("token");
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  let user = {};
+  let isAuthenticated = !!localStorage.getItem("token");
+  try {
+    const userString = localStorage.getItem("user");
+    if (userString && userString !== "undefined") {
+      user = JSON.parse(userString);
+    }
+  } catch (e) {
+    console.error("Corrupted localStorage state, clearing...", e);
+    localStorage.clear();
+    isAuthenticated = false;
+  }
 
   // Role-based default redirect with Life-Cycle Awareness
   const getDefaultRoute = () => {
