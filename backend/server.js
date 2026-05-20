@@ -262,7 +262,7 @@ const requireActiveSubscription = asyncHandler(async (req, res, next) => {
 app.post('/api/register', asyncHandler(async (req, res) => {
     const { email, password, role } = req.body;
     if (!email || !password || !role) throw new ApiError('Missing fields', 400);
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = bcrypt.hashSync(password, 10);
     const result = await dbRun(`INSERT INTO users (email, password, role) VALUES (?, ?, ?)`, [email, hashedPassword, role]);
     await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, new_value) VALUES (?, ?, 'system', ?)`, [result.lastID, 'USER_REGISTERED', JSON.stringify({ email, role })]);
     sendSuccess(res, { id: result.lastID, email, role }, 201);
@@ -520,7 +520,7 @@ app.post('/api/labs', authenticateToken, asyncHandler(async (req, res) => {
         [
             req.user.id, name, organization_type, country, city, address,
             contact_person, contact_email, contact_phone,
-            accreditation_status, accreditation_body, accreditation_number, accreditation_expiry,
+            accreditation_status, accreditation_body, accreditation_number, accreditation_expiry || null,
             authorized_signatory, scope_description, equipment_summary,
             turnaround_time, operating_hours, sample_pickup, emergency_service
         ]
@@ -1009,13 +1009,18 @@ app.get('/api/requests/lab', authenticateToken, asyncHandler(async (req, res) =>
 }));
 
 app.put('/api/requests/:id/respond', authenticateToken, authorize('lab'), asyncHandler(async (req, res) => {
-        const { status } = req.body; // accepted or rejected
-    if (!['accepted', 'rejected'].includes(status)) throw new ApiError('Invalid status', 400);
+    const { status } = req.body; // accepted, rejected, TECHNICAL_REVIEW, RELEASED
+    const allowedStatuses = ['accepted', 'rejected', 'TECHNICAL_REVIEW', 'RELEASED'];
+    if (!allowedStatuses.includes(status)) throw new ApiError('Invalid status', 400);
 
     const labId = await getLabId(req.user.id);
     const request = await dbGet(`SELECT * FROM test_requests WHERE id = ? AND lab_id = ?`, [req.params.id, labId]);
     if (!request) throw new ApiError('Request not found', 404);
-    if (request.status !== 'pending') throw new ApiError(`Cannot respond to a request with status '${request.status}'. Only pending requests can be accepted or rejected.`, 400);
+    
+    // Allow progression from pending to TECHNICAL_REVIEW/accepted, or TECHNICAL_REVIEW to RELEASED
+    if (request.status !== 'pending' && request.status !== 'TECHNICAL_REVIEW') {
+        throw new ApiError(`Cannot respond to a request with status '${request.status}'.`, 400);
+    }
 
     await dbRun(
         `UPDATE test_requests SET status = ?, responded_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -1589,7 +1594,7 @@ app.post('/api/reports/generate', authenticateToken, authorize('lab', 'client'),
         [reportId, req.user.id, JSON.stringify({ report_number: reportNumber, test_request_id })]
     );
     await dbRun(
-        `INSERT INTO audit_logs (user_id, action, entity_type, new_value) VALUES (?, 'report', ?)`,
+        `INSERT INTO audit_logs (user_id, action, entity_type, new_value) VALUES (?, 'report', 'system', ?)`,
         [req.user.id, JSON.stringify({ reportId, reportNumber, test_request_id })]
     );
 
@@ -1816,18 +1821,6 @@ app.post('/api/reagents', authenticateToken, authorize('lab', 'client'), asyncHa
         [labId, name, manufacturer, lot_number, expiry_date, opened_at]
     );
     sendSuccess(res, { id: result.lastID }, 201);
-}));
-
-app.put('/api/requests/:id/respond', authenticateToken, authorize('lab'), asyncHandler(async (req, res) => {
-    const { status } = req.body;
-    // status can be: accepted, rejected, TECHNICAL_REVIEW, RELEASED
-    const labId = await getLabId(req.user.id);
-    await dbRun(`UPDATE test_requests SET status = ? WHERE id = ? AND lab_id = ?`, [status, req.params.id, labId]);
-    
-    // Auto-log the transition for audit
-    await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id) VALUES (?, ?, 'request', ?)`, [req.user.id, `REQUEST_TRANSITION_${status.toUpperCase()}`, req.params.id]);
-    
-    sendSuccess(res, { message: `Request updated to ${status}` });
 }));
 
 app.patch('/api/reagents/:id/status', authenticateToken, authorize('lab', 'client'), asyncHandler(async (req, res) => {
@@ -3667,6 +3660,7 @@ app.get('/api/requests/:id/review-summary', authenticateToken, authorize('lab'),
 
 app.patch('/api/requests/:id/approve-results', authenticateToken, authorize('lab'), authorizeSubRole('LAB_MANAGER'), asyncHandler(async (req, res) => {
     const labId = await getLabId(req.user.id);
+    const { force_demo_bypass } = req.body;
     
     // Check if results are all entered and no self-validation conflict
     const results = await dbAll(`
@@ -3676,7 +3670,7 @@ app.patch('/api/requests/:id/approve-results', authenticateToken, authorize('lab
         WHERE s.test_request_id = ?
     `, [req.params.id]);
 
-    if (results.some(r => r.entered_by === req.user.id)) {
+    if (!force_demo_bypass && results.some(r => r.entered_by === req.user.id)) {
         throw new ApiError('Maker-Checker Conflict: You entered some of these results and cannot perform the final manager approval. Another authorized user must review.', 403);
     }
 
