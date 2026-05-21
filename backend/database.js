@@ -92,13 +92,27 @@ function translateQuery(sql) {
     return converted;
 }
 
+// Helper to normalize parameters for PostgreSQL (converts boolean true/false to 1/0 integers)
+function normalizeParams(params) {
+    if (!params) return params;
+    if (Array.isArray(params)) {
+        return params.map(val => {
+            if (val === true) return 1;
+            if (val === false) return 0;
+            return val;
+        });
+    }
+    return params;
+}
+
 // -------------------------------------------------------------
 // Core Promise-based Query Methods
 // -------------------------------------------------------------
 const dbGet = async (query, params = []) => {
     if (isPg) {
         const translated = translateQuery(query);
-        const res = await pgPool.query(translated, params);
+        const normalizedParams = normalizeParams(params);
+        const res = await pgPool.query(translated, normalizedParams);
         return res.rows[0] || null;
     } else {
         return new Promise((res, rej) => sqliteDb.get(query, params, (err, row) => err ? rej(err) : res(row)));
@@ -108,7 +122,8 @@ const dbGet = async (query, params = []) => {
 const dbAll = async (query, params = []) => {
     if (isPg) {
         const translated = translateQuery(query);
-        const res = await pgPool.query(translated, params);
+        const normalizedParams = normalizeParams(params);
+        const res = await pgPool.query(translated, normalizedParams);
         return res.rows;
     } else {
         return new Promise((res, rej) => sqliteDb.all(query, params, (err, rows) => err ? rej(err) : res(rows)));
@@ -118,6 +133,7 @@ const dbAll = async (query, params = []) => {
 const dbRun = async (query, params = []) => {
     if (isPg) {
         let translated = translateQuery(query);
+        const normalizedParams = normalizeParams(params);
         
         // Append RETURNING id to INSERT statements to track lastID
         if (translated.trim().toUpperCase().startsWith('INSERT ')) {
@@ -126,7 +142,7 @@ const dbRun = async (query, params = []) => {
             }
         }
         
-        const res = await pgPool.query(translated, params);
+        const res = await pgPool.query(translated, normalizedParams);
         return {
             lastID: res.rows.length > 0 ? Object.values(res.rows[0])[0] : null,
             changes: res.rowCount
@@ -886,6 +902,28 @@ dbExport.serialize(() => {
         pressure REAL,
         logged_by INTEGER,
         logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // 34. result_audit_logs
+    dbExport.run(`CREATE TABLE IF NOT EXISTS result_audit_logs (
+        id SERIAL PRIMARY KEY,
+        result_id INTEGER NOT NULL REFERENCES test_results(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        performed_by INTEGER NOT NULL REFERENCES users(id),
+        old_value TEXT,
+        new_value TEXT,
+        amendment_reason TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // 35. report_audit_logs
+    dbExport.run(`CREATE TABLE IF NOT EXISTS report_audit_logs (
+        id SERIAL PRIMARY KEY,
+        report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        performed_by INTEGER NOT NULL REFERENCES users(id),
+        metadata TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
     // Backward-compatibility schema syncs (run on sqliteDb or ignored gracefully in pg)

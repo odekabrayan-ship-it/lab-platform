@@ -89,13 +89,27 @@ function translateQuery(sql) {
     return converted;
 }
 
+// Helper to normalize parameters for PostgreSQL (converts boolean true/false to 1/0 integers)
+function normalizeParams(params) {
+    if (!params) return params;
+    if (Array.isArray(params)) {
+        return params.map(val => {
+            if (val === true) return 1;
+            if (val === false) return 0;
+            return val;
+        });
+    }
+    return params;
+}
+
 // -------------------------------------------------------------
 // Core Promise-based Query Methods
 // -------------------------------------------------------------
 const dbGet = async (query, params = []) => {
     if (isPg) {
         const translated = translateQuery(query);
-        const res = await pgPool.query(translated, params);
+        const normalizedParams = normalizeParams(params);
+        const res = await pgPool.query(translated, normalizedParams);
         return res.rows[0] || null;
     } else {
         return new Promise((res, rej) => sqliteDb.get(query, params, (err, row) => err ? rej(err) : res(row)));
@@ -105,7 +119,8 @@ const dbGet = async (query, params = []) => {
 const dbAll = async (query, params = []) => {
     if (isPg) {
         const translated = translateQuery(query);
-        const res = await pgPool.query(translated, params);
+        const normalizedParams = normalizeParams(params);
+        const res = await pgPool.query(translated, normalizedParams);
         return res.rows;
     } else {
         return new Promise((res, rej) => sqliteDb.all(query, params, (err, rows) => err ? rej(err) : res(rows)));
@@ -115,6 +130,7 @@ const dbAll = async (query, params = []) => {
 const dbRun = async (query, params = []) => {
     if (isPg) {
         let translated = translateQuery(query);
+        const normalizedParams = normalizeParams(params);
         
         // Append RETURNING id to INSERT statements to track lastID
         if (translated.trim().toUpperCase().startsWith('INSERT ')) {
@@ -123,7 +139,7 @@ const dbRun = async (query, params = []) => {
             }
         }
         
-        const res = await pgPool.query(translated, params);
+        const res = await pgPool.query(translated, normalizedParams);
         return {
             lastID: res.rows.length > 0 ? Object.values(res.rows[0])[0] : null,
             changes: res.rowCount

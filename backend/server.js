@@ -508,6 +508,9 @@ app.post('/api/labs', authenticateToken, asyncHandler(async (req, res) => {
         turnaround_time, operating_hours, sample_pickup, emergency_service
     } = req.body;
 
+    const pickupInt = (sample_pickup === true || sample_pickup === 'true' || sample_pickup === 1 || sample_pickup === '1') ? 1 : 0;
+    const emergencyInt = (emergency_service === true || emergency_service === 'true' || emergency_service === 1 || emergency_service === '1') ? 1 : 0;
+
     const result = await dbRun(
         `INSERT INTO laboratories (
             user_id, name, organization_type, country, city, address,
@@ -522,7 +525,7 @@ app.post('/api/labs', authenticateToken, asyncHandler(async (req, res) => {
             contact_person, contact_email, contact_phone,
             accreditation_status, accreditation_body, accreditation_number, accreditation_expiry || null,
             authorized_signatory, scope_description, equipment_summary,
-            turnaround_time, operating_hours, sample_pickup, emergency_service
+            turnaround_time, operating_hours, pickupInt, emergencyInt
         ]
     );
     await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, new_value) VALUES (?, ?, 'system', ?)`, [req.user.id, 'LAB_PROFILE_CREATED', JSON.stringify({ id: result.lastID })]);

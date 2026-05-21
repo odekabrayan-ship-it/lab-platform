@@ -8,8 +8,8 @@ class ResultService {
     static async addResult({ sampleId, parameterName, value, unit, methodReference, measurementUncertainty, specificationLimit, passFail, equipmentId, positiveControl, negativeControl, incubationTime, incubationTemp, reagentLot, enteredBy }) {
         const sample = await dbGet(`SELECT id, status, test_request_id FROM samples WHERE id = ?`, [sampleId]);
         if (!sample) throw new ApiError('Sample not found', 404);
-        if (sample.status !== 'in_testing') {
-            throw new ApiError('Results can only be added to samples that are currently in testing', 400);
+        if (sample.status !== 'ANALYZING' && sample.status !== 'in_testing') {
+            throw new ApiError('Results can only be added to samples that are currently in testing (ANALYZING status required)', 400);
         }
 
         // --- ISO 17025 COMPETENCE CHECK ---

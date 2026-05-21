@@ -151,10 +151,10 @@ export default function LabDashboard() {
     } catch (e) { alert("Failed to load review summary"); }
   };
 
-  const handleApproveWorkOrder = async () => {
+  const handleApproveWorkOrder = async (forceBypass = false) => {
     if (!confirm("Final Technical Approval: Are you sure you want to approve all results and close this work order? This will enable CoA generation.")) return;
     try {
-        await API.patch(`/api/requests/${reviewingRequest.id}/approve-results`);
+        await API.patch(`/api/requests/${reviewingRequest.id}/approve-results`, { force_demo_bypass: forceBypass });
         alert("✅ Work Order Approved. You can now generate the Certificate of Analysis.");
         setReviewingRequest(null);
         setReviewData(null);
@@ -686,16 +686,19 @@ export default function LabDashboard() {
                                     {user.sub_role === 'REGISTRAR' && req.status === 'pending' && (
                                       <button className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[9px] font-black uppercase rounded shadow-lg" onClick={() => handleResponse(req.id, 'TECHNICAL_REVIEW')}>Accept</button>
                                     )}
+                                    {user.sub_role === 'REGISTRAR' && (req.status === 'TECHNICAL_REVIEW' || req.status === 'RECEIVED') && (
+                                      <Link to={`/samples?requestId=${req.id}`} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase rounded shadow-lg no-underline whitespace-nowrap">Register Samples</Link>
+                                    )}
                                     {user.sub_role === 'LAB_MANAGER' && (req.status === 'TECHNICAL_REVIEW' || req.status === 'RECEIVED') && (
                                       <button className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[9px] font-black uppercase rounded shadow-lg" onClick={() => setAssigningRequest(req)}>Assign</button>
                                     )}
                                     {user.sub_role === 'LAB_MANAGER' && req.status === 'REVIEW_PENDING' && (
                                       <button className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[9px] font-black uppercase rounded shadow-lg" onClick={() => openReviewModal(req)}>Review</button>
                                     )}
-                                    {user.sub_role === 'TECHNICIAN' && req.status === 'in_progress' && (
+                                    {user.sub_role === 'TECHNICIAN' && req.status === 'RELEASED' && (
                                         <button className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[9px] font-black uppercase rounded shadow-lg" onClick={() => handleSubmitReview(req.id)}>Submit</button>
                                     )}
-                                    {req.status === 'in_progress' && (
+                                    {req.status === 'RELEASED' && (
                                         <Link to={`/results/batch?requestId=${req.id}`} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-[9px] font-black uppercase rounded no-underline">Bench</Link>
                                     )}
                                   </>
@@ -838,7 +841,11 @@ export default function LabDashboard() {
                       </div>
                       <div className="flex gap-4">
                           <button className="btn-secondary" onClick={() => setReviewingRequest(null)}>Decline / Further Review</button>
-                          <button className="btn-primary bg-green-600 hover:bg-green-500 border-none px-10" onClick={handleApproveWorkOrder}>
+                          {/* Demo Bypass for E2E Flow test by single user */}
+                          <button className="btn-secondary border-amber-500/50 text-amber-500 hover:bg-amber-500/10" onClick={() => handleApproveWorkOrder(true)}>
+                              Bypass Maker-Checker (Demo)
+                          </button>
+                          <button className="btn-primary bg-green-600 hover:bg-green-500 border-none px-10" onClick={() => handleApproveWorkOrder(false)}>
                               Approve & Authorize Release
                           </button>
                       </div>
