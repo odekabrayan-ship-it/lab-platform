@@ -76,7 +76,7 @@ export default function AdminInvitations() {
         sub_role: createForm.sub_role || null,
       };
       const res = await API.post('/api/admin/invitations', body);
-      showToast(\`Invitation sent to "\${createForm.email}"\`);
+      showToast(`Invitation sent to "${createForm.email}"`);
       setGeneratedLink(window.location.origin + res.data.data.inviteLink);
       setCreateForm(EMPTY_FORM);
       loadData();
@@ -90,7 +90,7 @@ export default function AdminInvitations() {
   const handleRevoke = async (id) => {
     if (!window.confirm('Revoke this invitation? It will no longer be usable.')) return;
     try {
-      await API.delete(\`/api/admin/invitations/\${id}\`);
+      await API.delete(`/api/admin/invitations/${id}`);
       showToast('Invitation revoked');
       loadData();
     } catch (err) {
@@ -102,8 +102,8 @@ export default function AdminInvitations() {
     <div className="animate-fade-in space-y-6">
       {/* TOAST */}
       {toast && (
-        <div className={\`fixed top-6 right-6 z-[500] px-6 py-4 rounded-2xl shadow-2xl font-bold text-sm flex items-center gap-3 animate-scale-up
-          \${toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}\`}>
+        <div className={`fixed top-6 right-6 z-[500] px-6 py-4 rounded-2xl shadow-2xl font-bold text-sm flex items-center gap-3 animate-scale-up
+          ${toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
           {toast.type === 'error' ? '✕' : '✓'} {toast.msg}
         </div>
       )}
@@ -151,7 +151,7 @@ export default function AdminInvitations() {
                       <div className="font-semibold text-white">{inv.email}</div>
                     </td>
                     <td className="px-5 py-4">
-                      <span className={\`px-2 py-1 rounded text-[10px] font-black uppercase \${pillStyle(inv.role)}\`}>
+                      <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${pillStyle(inv.role)}`}>
                         {inv.role}
                       </span>
                       {inv.sub_role && (
@@ -159,10 +159,10 @@ export default function AdminInvitations() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      <span className={\`px-2 py-1 rounded text-[10px] font-black uppercase 
-                        \${inv.status === 'pending' ? 'bg-blue-500/10 text-blue-400' : 
-                          inv.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400' : 
-                          'bg-red-500/10 text-red-400'}\`}>
+                      <span className={`px-2 py-1 rounded text-[10px] font-black uppercase 
+                        ${inv.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400' : 
+                          inv.status === 'pending' ? 'bg-blue-500/10 text-blue-400' : 
+                          'bg-red-500/10 text-red-400'}`}>
                         {inv.status}
                       </span>
                     </td>
@@ -267,7 +267,7 @@ function Modal({ title, onClose, children, color = 'blue' }) {
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[300] p-6" onClick={onClose}>
       <div
-        className={\`bg-[#0a1628] border \${borderColor} border-t-4 rounded-2xl w-full max-w-lg p-8 shadow-2xl animate-scale-up\`}
+        className={`bg-[#0a1628] border ${borderColor} border-t-4 rounded-2xl w-full max-w-lg p-8 shadow-2xl animate-scale-up`}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-7">

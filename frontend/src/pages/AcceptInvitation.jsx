@@ -17,7 +17,7 @@ export default function AcceptInvitation() {
   useEffect(() => {
     const fetchInvite = async () => {
       try {
-        const res = await API.get(\`/api/invitations/\${token}\`);
+        const res = await API.get(`/api/invitations/${token}`);
         setInvite(res.data.data);
       } catch (err) {
         setError(err.response?.data?.error || 'Invalid or expired invitation link.');
@@ -38,7 +38,7 @@ export default function AcceptInvitation() {
     setSubmitting(true);
     setError(null);
     try {
-      await API.post(\`/api/invitations/\${token}/accept\`, { password });
+      await API.post(`/api/invitations/${token}/accept`, { password });
       
       // Auto login
       const loginRes = await API.post('/api/auth/login', { email: invite.email, password });

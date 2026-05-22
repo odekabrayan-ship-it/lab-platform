@@ -11,6 +11,15 @@ const SuperAdminNexus = () => {
         networkThroughput: '128k Samples'
     });
 
+    const [showOverrideModal, setShowOverrideModal] = useState(false);
+    const [overrideForm, setOverrideForm] = useState({
+        tenantId: '',
+        tenantType: 'lab',
+        platformOverride: false,
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiry: ''
+    });
+
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -94,6 +103,27 @@ const SuperAdminNexus = () => {
         window.open(path, '_blank');
     };
 
+    const handleApplyOverride = async () => {
+        try {
+            await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/tenants/${overrideForm.tenantType}/${overrideForm.tenantId}/override`, { platform_override: overrideForm.platformOverride }, { headers });
+            alert(`Override ${overrideForm.platformOverride ? 'ENABLED' : 'DISABLED'} for ${overrideForm.tenantType} ${overrideForm.tenantId}`);
+        } catch(err) {
+            alert('Override update failed. Ensure Tenant ID is correct.');
+        }
+    };
+
+    const handleApplySubscription = async () => {
+        try {
+            await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/admin/tenants/${overrideForm.tenantType}/${overrideForm.tenantId}/subscription`, { 
+                subscription_status: overrideForm.subscriptionStatus, 
+                subscription_expiry: overrideForm.subscriptionExpiry || null
+            }, { headers });
+            alert(`Subscription set to ${overrideForm.subscriptionStatus} for ${overrideForm.tenantType} ${overrideForm.tenantId}`);
+        } catch(err) {
+            alert('Subscription update failed. Ensure Tenant ID is correct.');
+        }
+    };
+
     return (
         <div className="min-h-screen bg-[#020617] text-white flex flex-col items-center justify-center p-10 font-sans">
             {/* AMBIENT BACKGROUND */}
@@ -139,7 +169,7 @@ const SuperAdminNexus = () => {
                         <div className="text-sm text-blue-400/70">Tracking {stats.activeLabs} isolated laboratory environments and compliance logs in real-time.</div>
                     </div>
                     {/* System Overrides */}
-                    <div className="bg-red-500/5 border border-red-500/20 rounded-3xl p-6 backdrop-blur-xl hover:bg-red-500/10 transition-colors cursor-pointer" onClick={() => alert('Sovereign lockdown protocol requires MFA authentication.')}>
+                    <div className="bg-red-500/5 border border-red-500/20 rounded-3xl p-6 backdrop-blur-xl hover:bg-red-500/10 transition-colors cursor-pointer" onClick={() => setShowOverrideModal(true)}>
                         <div className="text-red-400 text-xs font-black uppercase tracking-widest mb-4 flex items-center gap-2">
                             <span className="text-lg">⚠️</span>
                             System Overrides
@@ -208,6 +238,83 @@ const SuperAdminNexus = () => {
                     </div>
                 </footer>
             </div>
+
+            {/* OVERRIDE MODAL */}
+            {showOverrideModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#0f172a] border border-red-500/30 rounded-3xl p-8 max-w-md w-full animate-slide-up shadow-[0_0_50px_rgba(239,68,68,0.15)] relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 to-orange-500"></div>
+                        <h2 className="text-2xl font-black text-white mb-2 flex items-center gap-2"><span className="text-red-500">⚠️</span> Platform Override Panel</h2>
+                        <p className="text-white/40 text-sm mb-6">Absolute authority module. Bypass subscription locks or forcibly modify billing states.</p>
+                        
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-white/50 mb-1">Tenant Type</label>
+                                    <select 
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-red-500 transition-colors"
+                                        value={overrideForm.tenantType}
+                                        onChange={(e) => setOverrideForm({...overrideForm, tenantType: e.target.value})}
+                                    >
+                                        <option value="lab">Laboratory</option>
+                                        <option value="client">Client</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-white/50 mb-1">Tenant ID</label>
+                                    <input 
+                                        type="number" 
+                                        placeholder="e.g. 1" 
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-red-500 transition-colors"
+                                        value={overrideForm.tenantId}
+                                        onChange={(e) => setOverrideForm({...overrideForm, tenantId: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mt-6">
+                                <h3 className="text-red-400 font-bold text-sm mb-3">1. Emergency Override (Grant Free Access)</h3>
+                                <label className="flex items-center gap-3 cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-5 h-5 accent-red-500"
+                                        checked={overrideForm.platformOverride}
+                                        onChange={(e) => setOverrideForm({...overrideForm, platformOverride: e.target.checked})}
+                                    />
+                                    <span className="text-sm text-white/80">Enable Platform Override (Bypass Billing)</span>
+                                </label>
+                                <button onClick={handleApplyOverride} className="mt-3 w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg transition-colors text-sm">Apply Override State</button>
+                            </div>
+
+                            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                                <h3 className="text-blue-400 font-bold text-sm mb-3">2. Manual Subscription State</h3>
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    <select 
+                                        className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-white text-sm"
+                                        value={overrideForm.subscriptionStatus}
+                                        onChange={(e) => setOverrideForm({...overrideForm, subscriptionStatus: e.target.value})}
+                                    >
+                                        <option value="ACTIVE">ACTIVE</option>
+                                        <option value="SUSPENDED">SUSPENDED</option>
+                                        <option value="PENDING_ONBOARDING">PENDING_ONBOARDING</option>
+                                    </select>
+                                    <input 
+                                        type="date" 
+                                        className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-white text-sm"
+                                        value={overrideForm.subscriptionExpiry}
+                                        onChange={(e) => setOverrideForm({...overrideForm, subscriptionExpiry: e.target.value})}
+                                    />
+                                </div>
+                                <button onClick={handleApplySubscription} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded-lg transition-colors text-sm">Force Subscription Update</button>
+                            </div>
+                        </div>
+
+                        <button onClick={() => setShowOverrideModal(false)} className="mt-6 w-full py-3 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white rounded-xl transition-colors font-bold">
+                            Close Override Panel
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

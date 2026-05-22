@@ -301,7 +301,10 @@ dbExport.serialize(() => {
         subscription_status TEXT DEFAULT 'PENDING_ONBOARDING',
         specialization TEXT,
         is_internal INTEGER DEFAULT 0,
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
         owner_company_id INTEGER,
+        platform_override INTEGER DEFAULT 0,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`);
 
@@ -325,6 +328,9 @@ dbExport.serialize(() => {
         subscription_tier TEXT DEFAULT 'BASIC',
         subscription_expiry DATE,
         subscription_status TEXT DEFAULT 'PENDING_ONBOARDING',
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
+        platform_override INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`);
@@ -951,6 +957,14 @@ dbExport.serialize(() => {
     dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_name TEXT`, (err) => {});
     dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_user_id INTEGER`, (err) => {});
     dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_date DATE`, (err) => {});
+    
+    // Stripe Subscriptions
+    dbExport.run(`ALTER TABLE laboratories ADD COLUMN stripe_customer_id TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE laboratories ADD COLUMN stripe_subscription_id TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE clients ADD COLUMN stripe_customer_id TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE clients ADD COLUMN stripe_subscription_id TEXT`, (err) => {});
+    dbExport.run(`ALTER TABLE laboratories ADD COLUMN platform_override INTEGER DEFAULT 0`, (err) => {});
+    dbExport.run(`ALTER TABLE clients ADD COLUMN platform_override INTEGER DEFAULT 0`, (err) => {});
     // Invitations
     dbExport.run(`CREATE TABLE IF NOT EXISTS invitations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

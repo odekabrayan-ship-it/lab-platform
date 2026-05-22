@@ -17,8 +17,11 @@ const BillingEngine = require('./services/BillingEngine');
 // Import Business Logic Layer
 const { RequestLifecycleService, dbGet, dbAll, dbRun, ApiError } = require('./services/businessLogic');
 const SampleService = require('./services/sampleService');
+const billingApi = require('./routes/billingApi');
+const webhookApi = require('./routes/webhookApi');
 const requireSubRole = require('./middleware/requireSubRole');
 const requireTenantScope = require('./middleware/requireTenantScope');
+const requireActiveSubscription = require('./middleware/requireActiveSubscription');
 const { logAudit } = require('./utils/auditLog');
 
 // Import Public Trust Modules
@@ -57,6 +60,8 @@ app.use(cors({
     },
     credentials: true
 }));
+app.use('/api/webhooks', webhookApi);
+
 app.use(express.json());
 
 app.use(helmet());
@@ -86,7 +91,28 @@ const authenticateToken = (req, res, next) => {
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return next(new ApiError('Invalid token', 403));
         req.user = user;
-        requireTenantScope(req, res, next);
+        requireTenantScope(req, res, (tenantErr) => {
+            if (tenantErr) return next(tenantErr);
+            
+            // Exempt billing, verification, admin, and profile routes from subscription blocks
+            const exemptRoutes = [
+                '/api/billing', 
+                '/api/verification', 
+                '/api/admin', 
+                '/api/invitations',
+                '/api/login',
+                '/api/register'
+            ];
+            
+            const isExempt = exemptRoutes.some(route => req.path.startsWith(route)) || 
+                             (req.method === 'GET' && req.path === '/api/user/profile');
+                             
+            if (isExempt) {
+                return next();
+            }
+            
+            requireActiveSubscription(req, res, next);
+        });
     });
 };
 
@@ -233,43 +259,6 @@ app.post('/api/admin/notify-renewal/:userId', authenticateToken, authorize('admi
 
 // Run sentinel on startup
 runSubscriptionSentinel();
-
-const requireActiveSubscription = asyncHandler(async (req, res, next) => {
-    const user = req.user;
-    let entity;
-    let table = user.role === 'lab' ? 'laboratories' : 'clients';
-    
-    entity = await dbGet(`SELECT verification_status, trial_started_at, subscription_status, subscription_expiry FROM ${table} WHERE user_id = ?`, [user.id]);
-
-    if (!entity) throw new ApiError('Profile not found', 404);
-
-    // Trial state handling
-    const trialStatus = user.role === 'lab' ? 'TRIAL_ACTIVE' : 'trial_active';
-    const postTrialStatus = user.role === 'lab' ? 'PENDING_REVIEW' : 'payment_required';
-
-    if (entity.verification_status === trialStatus) {
-        const trialDays = Math.floor((new Date() - new Date(entity.trial_started_at)) / (1000 * 60 * 60 * 24));
-        if (trialDays > 30) {
-            // Auto-transition to payment required/pending review
-            await dbRun(`UPDATE ${table} SET verification_status = ?, subscription_status = 'AWAITING_PAYMENT' WHERE user_id = ?`, [postTrialStatus, user.id]);
-            throw new ApiError('Trial period expired. Please upgrade to a paid subscription to continue using the platform.', 402);
-        }
-        return next();
-    }
-
-    const activeStatus = user.role === 'lab' ? 'VERIFIED' : 'active';
-    if (entity.subscription_status !== 'ACTIVE' && entity.verification_status === activeStatus) {
-        throw new ApiError('Subscription inactive or expired. Access to marketplace features is restricted.', 402);
-    }
-    
-    // Check for expiry
-    if (entity.subscription_status === 'ACTIVE' && entity.subscription_expiry && new Date(entity.subscription_expiry) < new Date()) {
-        await dbRun(`UPDATE ${table} SET subscription_status = 'EXPIRED' WHERE user_id = ?`, [user.id]);
-        throw new ApiError('Your subscription has expired. Please renew to restore full access.', 402);
-    }
-    
-    next();
-});
 
 // =======================
 // AUTH & USERS
@@ -4068,14 +4057,6 @@ app.put('/api/admin/hr/requisitions/:id/respond', authenticateToken, authorize('
 
 app.use('/reports', express.static(storageDir));
 
-// Centralized Error Middleware
-app.use((err, req, res, next) => {
-    console.error(err);
-    res.status(err.status || 500).json({
-        success: false,
-        message: err.message || 'Internal Server Error'
-    });
-});
 
 // --- SUBSCRIPTION OVERSIGHT ENGINE ---
 async function runSubscriptionOversight() {
@@ -5284,7 +5265,7 @@ app.post('/api/admin/invitations', authenticateToken, authorize('admin'), requir
     });
 
     // In a real system we would send an email here. For now we just return the link.
-    const inviteLink = \`/invite/\${token}\`;
+    const inviteLink = `/invite/${token}`;
 
     sendSuccess(res, { message: 'Invitation created', inviteLink, token }, 201);
 }));
@@ -5306,7 +5287,7 @@ app.delete('/api/admin/invitations/:id', authenticateToken, authorize('admin'), 
     if (!invite) throw new ApiError('Invitation not found', 404);
     if (invite.status !== 'pending') throw new ApiError('Only pending invitations can be revoked', 400);
 
-    await dbRun(\`UPDATE invitations SET status = 'revoked' WHERE id = ?\`, [req.params.id]);
+    await dbRun(`UPDATE invitations SET status = 'revoked' WHERE id = ?`, [req.params.id]);
     sendSuccess(res, { message: 'Invitation revoked' });
 }));
 
@@ -5314,12 +5295,12 @@ app.delete('/api/admin/invitations/:id', authenticateToken, authorize('admin'), 
 app.get('/api/invitations/:token', asyncHandler(async (req, res) => {
     const invite = await dbGet('SELECT * FROM invitations WHERE token = ?', [req.params.token]);
     if (!invite) throw new ApiError('Invalid invitation token', 404);
-    if (invite.status !== 'pending') throw new ApiError(\`Invitation is already \${invite.status}\`, 400);
+    if (invite.status !== 'pending') throw new ApiError(`Invitation is already ${invite.status}`, 400);
     
     // Check expiry
     const isExpired = new Date() > new Date(invite.expires_at);
     if (isExpired) {
-        await dbRun(\`UPDATE invitations SET status = 'expired' WHERE id = ?\`, [invite.id]);
+        await dbRun(`UPDATE invitations SET status = 'expired' WHERE id = ?`, [invite.id]);
         throw new ApiError('Invitation has expired', 400);
     }
 
@@ -5333,28 +5314,88 @@ app.post('/api/invitations/:token/accept', asyncHandler(async (req, res) => {
 
     const invite = await dbGet('SELECT * FROM invitations WHERE token = ?', [req.params.token]);
     if (!invite) throw new ApiError('Invalid invitation token', 404);
-    if (invite.status !== 'pending') throw new ApiError(\`Invitation is already \${invite.status}\`, 400);
+    if (invite.status !== 'pending') throw new ApiError(`Invitation is already ${invite.status}`, 400);
     
     const isExpired = new Date() > new Date(invite.expires_at);
     if (isExpired) {
-        await dbRun(\`UPDATE invitations SET status = 'expired' WHERE id = ?\`, [invite.id]);
+        await dbRun(`UPDATE invitations SET status = 'expired' WHERE id = ?`, [invite.id]);
         throw new ApiError('Invitation has expired', 400);
     }
 
     const hashed = await bcrypt.hash(password, 12);
 
-    const result = await dbRun(\`
+    const result = await dbRun(`
         INSERT INTO users (email, password, role, sub_role, parent_lab_id, parent_client_id, is_verified, created_at)
         VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-    \`, [invite.email, hashed, invite.role, invite.sub_role, invite.tenant_lab_id, invite.tenant_client_id]);
+    `, [invite.email, hashed, invite.role, invite.sub_role, invite.tenant_lab_id, invite.tenant_client_id]);
 
-    await dbRun(\`UPDATE invitations SET status = 'accepted' WHERE id = ?\`, [invite.id]);
+    await dbRun(`UPDATE invitations SET status = 'accepted' WHERE id = ?`, [invite.id]);
 
     sendSuccess(res, { message: 'Account created successfully', userId: result.lastID });
 }));
 
 // ==========================================
+// QUALICORE PLATFORM OVERRIDE APIs
+// ==========================================
 
+// 1. Toggle Platform Override
+app.post('/api/admin/tenants/:type/:id/override', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { type, id } = req.params;
+    const { platform_override } = req.body;
+    
+    if (!['lab', 'client'].includes(type)) throw new ApiError('Invalid tenant type', 400);
+    const table = type === 'lab' ? 'laboratories' : 'clients';
+    
+    const tenant = await dbGet(`SELECT id, ${type === 'lab' ? 'name' : 'company_name'} as name, platform_override FROM ${table} WHERE id = ?`, [id]);
+    if (!tenant) throw new ApiError('Tenant not found', 404);
+    
+    const newValue = platform_override ? 1 : 0;
+    await dbRun(`UPDATE ${table} SET platform_override = ? WHERE id = ?`, [newValue, id]);
+    
+    await dbRun(`
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_value, new_value)
+        VALUES (?, 'PLATFORM_OVERRIDE_UPDATED', ?, ?, ?, ?)
+    `, [req.user.id, type, id, String(tenant.platform_override), String(newValue)]);
+    
+    sendSuccess(res, { message: 'Platform override updated', platform_override: newValue });
+}));
+
+// 2. Manage Subscription Manually
+app.post('/api/admin/tenants/:type/:id/subscription', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { type, id } = req.params;
+    const { subscription_status, subscription_expiry } = req.body;
+    
+    if (!['lab', 'client'].includes(type)) throw new ApiError('Invalid tenant type', 400);
+    const table = type === 'lab' ? 'laboratories' : 'clients';
+    
+    const tenant = await dbGet(`SELECT id, subscription_status, subscription_expiry FROM ${table} WHERE id = ?`, [id]);
+    if (!tenant) throw new ApiError('Tenant not found', 404);
+    
+    await dbRun(`UPDATE ${table} SET subscription_status = ?, subscription_expiry = ? WHERE id = ?`, [subscription_status, subscription_expiry, id]);
+    
+    await dbRun(`
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_value, new_value)
+        VALUES (?, 'TENANT_SUBSCRIPTION_UPDATED', ?, ?, ?, ?)
+    `, [req.user.id, type, id, JSON.stringify({ status: tenant.subscription_status, expiry: tenant.subscription_expiry }), JSON.stringify({ status: subscription_status, expiry: subscription_expiry })]);
+    
+    sendSuccess(res, { message: 'Subscription updated manually' });
+}));
+
+// ==========================================
+// ==========================================
+// BILLING & SUBSCRIPTIONS
+// ==========================================
+app.use('/api/billing', authenticateToken, billingApi);
+
+// Centralized Error Middleware
+app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(err.status || 500).json({
+        success: false,
+        message: err.message || 'Internal Server Error'
+    });
+});
 const PORT = process.env.PORT || 3000;
+app.post('/api/test-route', (req, res) => res.json({ test: 'ok' }));
 app.listen(PORT, () => console.log(`QualiCore API running on port ${PORT}`));
 
