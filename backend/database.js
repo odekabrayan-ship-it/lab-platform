@@ -951,6 +951,20 @@ dbExport.serialize(() => {
     dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_name TEXT`, (err) => {});
     dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_by_user_id INTEGER`, (err) => {});
     dbExport.run(`ALTER TABLE lab_methods ADD COLUMN validated_date DATE`, (err) => {});
+    // Invitations
+    dbExport.run(`CREATE TABLE IF NOT EXISTS invitations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        sub_role TEXT,
+        tenant_lab_id INTEGER,
+        tenant_client_id INTEGER,
+        token TEXT NOT NULL UNIQUE,
+        status TEXT DEFAULT 'pending',
+        expires_at DATETIME NOT NULL,
+        invited_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     console.log("DATABASE: Adapters established. Schema validation complete.");
 });

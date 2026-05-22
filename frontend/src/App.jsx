@@ -52,6 +52,9 @@ import EnvironmentalSentinel from "./pages/EnvironmentalSentinel";
 import InternalCAPA from "./pages/InternalCAPA";
 import RegistryManagement from "./pages/RegistryManagement";
 import SuperAdminNexus from "./pages/SuperAdminNexus";
+import AdminUserManagement from "./pages/AdminUserManagement";
+import AdminInvitations from "./pages/AdminInvitations";
+import AcceptInvitation from "./pages/AcceptInvitation";
 import EnvironmentLogs from "./pages/EnvironmentLogs";
 import TechnicianWorkspace from "./pages/TechnicianWorkspace";
 import ManagerWorkspace from "./pages/ManagerWorkspace";
@@ -120,7 +123,9 @@ function App() {
     <BrowserRouter>
       <OversightSentinel />
       <Routes>
-        <Route path="/verify/:code" element={<ReportVerification />} />
+        {/* ── Public Trust & Invitation Routes ── */}
+        <Route path="/verify/:code" element={<SealVerification />} />
+        <Route path="/invite/:token" element={<AcceptInvitation />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/consumer-hub" element={isAuthenticated ? <ConsumerHub /> : <Navigate to="/login" />} />
@@ -205,6 +210,8 @@ function App() {
           {/* ── Admin Routes ── */}
           <Route path="/admin"             element={<AdminDashboard />} />
           <Route path="/admin/nexus"       element={<SuperAdminNexus />} />
+          <Route path="/admin/users"       element={<AdminUserManagement />} />
+          <Route path="/admin/invitations" element={<AdminInvitations />} />
           <Route path="/admin/directory"   element={<AdminDirectory />} />
           <Route path="/admin/registry"    element={<AdminRegistry />} />
           <Route path="/admin/accreditation" element={<AdminAccreditation />} />

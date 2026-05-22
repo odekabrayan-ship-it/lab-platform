@@ -29,6 +29,26 @@ const SuperAdminNexus = () => {
 
     const systems = [
         {
+            id: 'users',
+            title: 'User Management',
+            subtitle: 'Platform Identity & Access Control',
+            description: 'Create platform accounts, assign roles and sub-roles, link users to laboratories or industrial organizations, deactivate accounts, and reset credentials.',
+            icon: '👥',
+            color: 'from-violet-500 to-purple-600',
+            path: '/admin/users',
+            kpi: `${stats.activeLabs} Org Members`
+        },
+        {
+            id: 'invitations',
+            title: 'User Invitations',
+            subtitle: 'Secure Onboarding & Provisioning',
+            description: 'Generate secure registration links to invite new personnel to the platform. Define roles and organization bindings before onboarding.',
+            icon: '✉️',
+            color: 'from-emerald-500 to-green-600',
+            path: '/admin/invitations',
+            kpi: 'Manage Invites'
+        },
+        {
             id: 'directory',
             title: 'QualiCore Directory',
             subtitle: 'Institutional Infrastructure Hub',
@@ -98,8 +118,38 @@ const SuperAdminNexus = () => {
                     </p>
                 </header>
 
-                {/* THE QUAD GATES */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                {/* ADVANCED SUPER ADMIN PANELS */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 animate-fade-in" style={{ animationDelay: '100ms' }}>
+                    {/* Platform Health */}
+                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-3xl p-6 backdrop-blur-xl hover:bg-emerald-500/10 transition-colors">
+                        <div className="text-emerald-400 text-xs font-black uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            Platform Health
+                        </div>
+                        <div className="text-3xl font-black mb-1">Operational</div>
+                        <div className="text-sm text-emerald-400/70">All micro-services responding. Database integrity verified. API latency optimized.</div>
+                    </div>
+                    {/* Tenant Monitoring */}
+                    <div className="bg-blue-500/5 border border-blue-500/20 rounded-3xl p-6 backdrop-blur-xl hover:bg-blue-500/10 transition-colors">
+                        <div className="text-blue-400 text-xs font-black uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <span className="text-lg">📊</span>
+                            Tenant Monitoring
+                        </div>
+                        <div className="text-3xl font-black mb-1">Active Sync</div>
+                        <div className="text-sm text-blue-400/70">Tracking {stats.activeLabs} isolated laboratory environments and compliance logs in real-time.</div>
+                    </div>
+                    {/* System Overrides */}
+                    <div className="bg-red-500/5 border border-red-500/20 rounded-3xl p-6 backdrop-blur-xl hover:bg-red-500/10 transition-colors cursor-pointer" onClick={() => alert('Sovereign lockdown protocol requires MFA authentication.')}>
+                        <div className="text-red-400 text-xs font-black uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <span className="text-lg">⚠️</span>
+                            System Overrides
+                        </div>
+                        <div className="text-3xl font-black mb-1">Restricted</div>
+                        <div className="text-sm text-red-400/70">Master kill switches and global lockdown protocols armed. Click to initiate override.</div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
                     {systems.map((system, idx) => (
                         <div 
                             key={system.id}

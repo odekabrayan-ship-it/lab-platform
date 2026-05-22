@@ -2,7 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { validatePasswordComplexity } = require('./utils/passwordValidation');
 const db = require('./database');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
@@ -13,6 +17,9 @@ const BillingEngine = require('./services/BillingEngine');
 // Import Business Logic Layer
 const { RequestLifecycleService, dbGet, dbAll, dbRun, ApiError } = require('./services/businessLogic');
 const SampleService = require('./services/sampleService');
+const requireSubRole = require('./middleware/requireSubRole');
+const requireTenantScope = require('./middleware/requireTenantScope');
+const { logAudit } = require('./utils/auditLog');
 
 // Import Public Trust Modules
 const publicDb = require('./public_database');
@@ -52,6 +59,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
+app.use(helmet());
+
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: "Too many login attempts. Try again in 15 minutes." });
+const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: "Too many accounts created. Try again later." });
+const adminLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 30, message: "Too many admin requests." });
+
+app.use('/api/admin', adminLimiter);
+
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey_qualicore_mvp';
 const storageDir = path.join(__dirname, 'storage', 'reports');
 if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
@@ -71,7 +86,7 @@ const authenticateToken = (req, res, next) => {
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return next(new ApiError('Invalid token', 403));
         req.user = user;
-        next();
+        requireTenantScope(req, res, next);
     });
 };
 
@@ -259,9 +274,10 @@ const requireActiveSubscription = asyncHandler(async (req, res, next) => {
 // =======================
 // AUTH & USERS
 // =======================
-app.post('/api/register', asyncHandler(async (req, res) => {
+app.post('/api/register', registerLimiter, asyncHandler(async (req, res) => {
     const { email, password, role } = req.body;
     if (!email || !password || !role) throw new ApiError('Missing fields', 400);
+    validatePasswordComplexity(password);
     const hashedPassword = bcrypt.hashSync(password, 10);
     const result = await dbRun(`INSERT INTO users (email, password, role) VALUES (?, ?, ?)`, [email, hashedPassword, role]);
     await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, new_value) VALUES (?, ?, 'system', ?)`, [result.lastID, 'USER_REGISTERED', JSON.stringify({ email, role })]);
@@ -300,7 +316,7 @@ app.get('/api/admin/verification-requests', authenticateToken, authorize('admin'
     sendSuccess(res, requests);
 }));
 
-app.post('/api/login', asyncHandler(async (req, res) => {
+app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
     const { email, password } = req.body;
     const user = await dbGet(`SELECT * FROM users WHERE email = ?`, [email]);
     if (!user) throw new ApiError('User not found', 404);
@@ -332,7 +348,7 @@ app.post('/api/login', asyncHandler(async (req, res) => {
         email: user.email,
         sub_role: user.sub_role,
         parent_client_id: user.parent_client_id
-    }, JWT_SECRET, { expiresIn: '24h' });
+    }, JWT_SECRET, { expiresIn: '8h' });
     
     sendSuccess(res, { 
         token, 
@@ -5040,5 +5056,305 @@ app.post('/api/admin/impersonate/:userId', authenticateToken, authorize('admin')
     sendSuccess(res, { token, user: targetUser });
 }));
 
+// ==========================================
+// QUALICORE PLATFORM — ADMIN USER MANAGEMENT
+// ==========================================
+// These routes govern platform-level user creation, role assignment,
+// organization linking, and deactivation. Only role='admin' can access.
+
+// 1. LIST ALL USERS (with role, sub_role, org, status filters)
+app.get('/api/admin/users', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { role, sub_role, search, org_type } = req.query;
+    let query = `
+        SELECT 
+            u.id, u.email, u.role, u.sub_role, u.is_verified, u.created_at,
+            u.parent_lab_id, u.parent_client_id,
+            l.name as lab_name,
+            c.company_name as client_name
+        FROM users u
+        LEFT JOIN laboratories l ON u.parent_lab_id = l.id
+        LEFT JOIN clients c ON u.parent_client_id = c.id
+        WHERE 1=1
+    `;
+    const params = [];
+
+    if (role) { query += ` AND u.role = ?`; params.push(role); }
+    if (sub_role) { query += ` AND u.sub_role = ?`; params.push(sub_role); }
+    if (search) { 
+        query += ` AND (u.email LIKE ? OR l.name LIKE ? OR c.company_name LIKE ?)`;
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (org_type === 'platform') { query += ` AND u.role = 'admin' AND u.parent_lab_id IS NULL AND u.parent_client_id IS NULL`; }
+    if (org_type === 'lab') { query += ` AND u.parent_lab_id IS NOT NULL`; }
+    if (org_type === 'client') { query += ` AND u.parent_client_id IS NOT NULL`; }
+
+    query += ` ORDER BY u.created_at DESC`;
+    const users = await dbAll(query, params);
+    sendSuccess(res, users);
+}));
+
+// 2. GET SINGLE USER
+app.get('/api/admin/users/:id', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const user = await dbGet(`
+        SELECT u.*, l.name as lab_name, c.company_name as client_name
+        FROM users u
+        LEFT JOIN laboratories l ON u.parent_lab_id = l.id
+        LEFT JOIN clients c ON u.parent_client_id = c.id
+        WHERE u.id = ?
+    `, [req.params.id]);
+    if (!user) throw new ApiError('User not found', 404);
+    delete user.password;
+    sendSuccess(res, user);
+}));
+
+// 3. CREATE USER (Platform Admin, Lab Member, Client Member)
+app.post('/api/admin/users', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { email, password, role, sub_role, parent_lab_id, parent_client_id } = req.body;
+
+    if (!email || !password || !role) throw new ApiError('email, password, and role are required', 400);
+    validatePasswordComplexity(password);
+
+    const VALID_ROLES = ['admin', 'lab', 'client', 'professional', 'consumer'];
+    if (!VALID_ROLES.includes(role)) throw new ApiError(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`, 400);
+
+    const existing = await dbGet(`SELECT id FROM users WHERE email = ?`, [email]);
+    if (existing) throw new ApiError('A user with this email already exists', 409);
+
+    const hashed = await bcrypt.hash(password, 12);
+    const result = await dbRun(`
+        INSERT INTO users (email, password, role, sub_role, parent_lab_id, parent_client_id, is_verified, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+    `, [email, hashed, role, sub_role || null, parent_lab_id || null, parent_client_id || null]);
+
+    await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_value) VALUES (?, 'USER_CREATED', 'user', ?, ?)`,
+        [req.user.id, result.lastID, JSON.stringify({ email, role, sub_role })]);
+
+    sendSuccess(res, { id: result.lastID, email, role, sub_role }, 201);
+}));
+
+// 4. UPDATE USER ROLE / SUB_ROLE / VERIFICATION
+app.patch('/api/admin/users/:id', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { role, sub_role, is_verified } = req.body;
+    const userId = req.params.id;
+
+    const user = await dbGet(`SELECT id, email, role FROM users WHERE id = ?`, [userId]);
+    if (!user) throw new ApiError('User not found', 404);
+
+    const updates = [];
+    const params = [];
+    if (role !== undefined) { updates.push('role = ?'); params.push(role); }
+    if (sub_role !== undefined) { updates.push('sub_role = ?'); params.push(sub_role); }
+    if (is_verified !== undefined) { updates.push('is_verified = ?'); params.push(is_verified ? 1 : 0); }
+
+    if (updates.length === 0) throw new ApiError('No fields to update provided', 400);
+    params.push(userId);
+
+    await dbRun(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+
+    await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_value) VALUES (?, 'USER_UPDATED', 'user', ?, ?)`,
+        [req.user.id, userId, JSON.stringify({ role, sub_role, is_verified })]);
+
+    sendSuccess(res, { message: 'User updated', id: userId });
+}));
+
+// 5. LINK USER TO LABORATORY
+app.post('/api/admin/users/:id/link-lab', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { lab_id } = req.body;
+    const userId = req.params.id;
+
+    const user = await dbGet(`SELECT id, role FROM users WHERE id = ?`, [userId]);
+    if (!user) throw new ApiError('User not found', 404);
+
+    const lab = await dbGet(`SELECT id, name FROM laboratories WHERE id = ?`, [lab_id]);
+    if (!lab) throw new ApiError('Laboratory not found', 404);
+
+    await dbRun(`UPDATE users SET parent_lab_id = ?, parent_client_id = NULL WHERE id = ?`, [lab_id, userId]);
+
+    await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_value) VALUES (?, 'USER_LINKED_TO_LAB', 'user', ?, ?)`,
+        [req.user.id, userId, JSON.stringify({ lab_id, lab_name: lab.name })]);
+
+    sendSuccess(res, { message: `User linked to laboratory: ${lab.name}` });
+}));
+
+// 6. LINK USER TO CLIENT ORGANIZATION
+app.post('/api/admin/users/:id/link-client', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { client_id } = req.body;
+    const userId = req.params.id;
+
+    const user = await dbGet(`SELECT id, role FROM users WHERE id = ?`, [userId]);
+    if (!user) throw new ApiError('User not found', 404);
+
+    const client = await dbGet(`SELECT id, company_name FROM clients WHERE id = ?`, [client_id]);
+    if (!client) throw new ApiError('Client organization not found', 404);
+
+    await dbRun(`UPDATE users SET parent_client_id = ?, parent_lab_id = NULL WHERE id = ?`, [client_id, userId]);
+
+    await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_value) VALUES (?, 'USER_LINKED_TO_CLIENT', 'user', ?, ?)`,
+        [req.user.id, userId, JSON.stringify({ client_id, company_name: client.company_name })]);
+
+    sendSuccess(res, { message: `User linked to organization: ${client.company_name}` });
+}));
+
+// 7. DEACTIVATE / REACTIVATE USER
+app.post('/api/admin/users/:id/deactivate', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { action } = req.body; // 'deactivate' | 'reactivate'
+    const userId = req.params.id;
+
+    if (parseInt(userId) === req.user.id) throw new ApiError('You cannot deactivate your own account', 403);
+
+    const user = await dbGet(`SELECT id, email, is_verified FROM users WHERE id = ?`, [userId]);
+    if (!user) throw new ApiError('User not found', 404);
+
+    const newStatus = action === 'reactivate' ? 1 : 0;
+    await dbRun(`UPDATE users SET is_verified = ? WHERE id = ?`, [newStatus, userId]);
+
+    await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_value) VALUES (?, ?, 'user', ?, ?)`,
+        [req.user.id, action === 'reactivate' ? 'USER_REACTIVATED' : 'USER_DEACTIVATED', userId, JSON.stringify({ email: user.email })]);
+
+    sendSuccess(res, { message: `User ${action === 'reactivate' ? 'reactivated' : 'deactivated'} successfully` });
+}));
+
+// 8. ADMIN PASSWORD RESET
+app.post('/api/admin/users/:id/reset-password', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { new_password } = req.body;
+    if (!new_password || new_password.length < 8) throw new ApiError('New password must be at least 8 characters', 400);
+
+    const user = await dbGet(`SELECT id, email FROM users WHERE id = ?`, [req.params.id]);
+    if (!user) throw new ApiError('User not found', 404);
+
+    const hashed = await bcrypt.hash(new_password, 12);
+    await dbRun(`UPDATE users SET password = ? WHERE id = ?`, [hashed, req.params.id]);
+
+    await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_value) VALUES (?, 'ADMIN_PASSWORD_RESET', 'user', ?, ?)`,
+        [req.user.id, req.params.id, JSON.stringify({ target_email: user.email })]);
+
+    sendSuccess(res, { message: `Password reset for ${user.email}` });
+}));
+
+// 9. GET LABS LIST (for org-link dropdown)
+app.get('/api/admin/laboratories', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const labs = await dbAll(`
+        SELECT l.id, l.name, l.verification_status, l.city, l.country, u.email as admin_email
+        FROM laboratories l
+        JOIN users u ON l.user_id = u.id
+        ORDER BY l.name ASC
+    `);
+    sendSuccess(res, labs);
+}));
+
+// 10. GET CLIENTS LIST (for org-link dropdown)
+app.get('/api/admin/clients', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const clients = await dbAll(`
+        SELECT c.id, c.company_name, c.verification_status, c.city, c.country, u.email as admin_email
+        FROM clients c
+        JOIN users u ON c.user_id = u.id
+        ORDER BY c.company_name ASC
+    `);
+    sendSuccess(res, clients);
+}));
+
+// ==========================================
+// INVITATIONS API
+// ==========================================
+
+// 1. CREATE INVITATION
+app.post('/api/admin/invitations', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const { email, role, sub_role, tenant_lab_id, tenant_client_id } = req.body;
+    
+    if (!email || !role) throw new ApiError('email and role are required', 400);
+
+    // Check if user already exists
+    const existingUser = await dbGet(`SELECT id FROM users WHERE email = ?`, [email]);
+    if (existingUser) throw new ApiError('User with this email already exists', 409);
+
+    const token = crypto.randomUUID(); // Requires node 15.6+
+    
+    const result = await dbRun(`
+        INSERT INTO invitations (email, role, sub_role, tenant_lab_id, tenant_client_id, token, status, expires_at, invited_by)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now', '+7 days'), ?)
+    `, [email, role, sub_role || null, tenant_lab_id || null, tenant_client_id || null, token, req.user.id]);
+
+    await logAudit({
+        userId: req.user.id,
+        action: 'INVITATION_SENT',
+        entityType: 'invitation',
+        entityId: result.lastID,
+        metadata: { email, role },
+        req
+    });
+
+    // In a real system we would send an email here. For now we just return the link.
+    const inviteLink = \`/invite/\${token}\`;
+
+    sendSuccess(res, { message: 'Invitation created', inviteLink, token }, 201);
+}));
+
+// 2. LIST INVITATIONS
+app.get('/api/admin/invitations', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const invites = await dbAll(`
+        SELECT i.*, u.email as invited_by_email
+        FROM invitations i
+        LEFT JOIN users u ON i.invited_by = u.id
+        ORDER BY i.created_at DESC
+    `);
+    sendSuccess(res, invites);
+}));
+
+// 3. REVOKE INVITATION
+app.delete('/api/admin/invitations/:id', authenticateToken, authorize('admin'), requireSubRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), asyncHandler(async (req, res) => {
+    const invite = await dbGet('SELECT * FROM invitations WHERE id = ?', [req.params.id]);
+    if (!invite) throw new ApiError('Invitation not found', 404);
+    if (invite.status !== 'pending') throw new ApiError('Only pending invitations can be revoked', 400);
+
+    await dbRun(\`UPDATE invitations SET status = 'revoked' WHERE id = ?\`, [req.params.id]);
+    sendSuccess(res, { message: 'Invitation revoked' });
+}));
+
+// 4. GET INVITATION DETAILS (Public)
+app.get('/api/invitations/:token', asyncHandler(async (req, res) => {
+    const invite = await dbGet('SELECT * FROM invitations WHERE token = ?', [req.params.token]);
+    if (!invite) throw new ApiError('Invalid invitation token', 404);
+    if (invite.status !== 'pending') throw new ApiError(\`Invitation is already \${invite.status}\`, 400);
+    
+    // Check expiry
+    const isExpired = new Date() > new Date(invite.expires_at);
+    if (isExpired) {
+        await dbRun(\`UPDATE invitations SET status = 'expired' WHERE id = ?\`, [invite.id]);
+        throw new ApiError('Invitation has expired', 400);
+    }
+
+    sendSuccess(res, { email: invite.email, role: invite.role, sub_role: invite.sub_role });
+}));
+
+// 5. ACCEPT INVITATION (Public)
+app.post('/api/invitations/:token/accept', asyncHandler(async (req, res) => {
+    const { password } = req.body;
+    if (!password || password.length < 8) throw new ApiError('Password must be at least 8 characters long', 400);
+
+    const invite = await dbGet('SELECT * FROM invitations WHERE token = ?', [req.params.token]);
+    if (!invite) throw new ApiError('Invalid invitation token', 404);
+    if (invite.status !== 'pending') throw new ApiError(\`Invitation is already \${invite.status}\`, 400);
+    
+    const isExpired = new Date() > new Date(invite.expires_at);
+    if (isExpired) {
+        await dbRun(\`UPDATE invitations SET status = 'expired' WHERE id = ?\`, [invite.id]);
+        throw new ApiError('Invitation has expired', 400);
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+
+    const result = await dbRun(\`
+        INSERT INTO users (email, password, role, sub_role, parent_lab_id, parent_client_id, is_verified, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+    \`, [invite.email, hashed, invite.role, invite.sub_role, invite.tenant_lab_id, invite.tenant_client_id]);
+
+    await dbRun(\`UPDATE invitations SET status = 'accepted' WHERE id = ?\`, [invite.id]);
+
+    sendSuccess(res, { message: 'Account created successfully', userId: result.lastID });
+}));
+
+// ==========================================
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`QualiCore API running on port ${PORT}`));
+
