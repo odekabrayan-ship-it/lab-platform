@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import axios from 'axios';
 
 const SuperAdminNexus = () => {
-    const navigate = useNavigate();
+
     const [stats, setStats] = useState({
         activeLabs: 42,
         pendingAccreditations: 8,
