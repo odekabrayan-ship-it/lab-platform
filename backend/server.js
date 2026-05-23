@@ -65,12 +65,10 @@ app.use(cors({
     },
     credentials: true
 }));
-app.use('/api/webhooks', webhookApi);
-app.use('/api/cert', authenticateToken, certApi);
-
 app.use(express.json());
-
 app.use(helmet());
+
+app.use('/api/webhooks', webhookApi);
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: "Too many login attempts. Try again in 15 minutes." });
 const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: "Too many accounts created. Try again later." });
@@ -118,9 +116,13 @@ const authenticateToken = (req, res, next) => {
             }
             
             requireActiveSubscription(req, res, next);
+
         });
     });
 };
+
+// Register cert API AFTER authenticateToken is defined
+app.use('/api/cert', authenticateToken, certApi);
 
 const authorize = (...allowedRoles) => {
     return (req, res, next) => {
