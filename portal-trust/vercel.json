@@ -1,1 +1,1 @@
-{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
+{ "name": "qualicore-trust", "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }

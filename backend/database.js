@@ -1017,7 +1017,22 @@ dbExport.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+
+    // ── Schema Migrations: safely add new columns if missing ───────────────
+    const migrations = [
+        `ALTER TABLE cert_applications ADD COLUMN review_stage TEXT DEFAULT 'INITIAL'`,
+        `ALTER TABLE professionals ADD COLUMN specialization TEXT`,
+        `ALTER TABLE professionals ADD COLUMN institution TEXT`,
+        `ALTER TABLE professionals ADD COLUMN years_experience INTEGER DEFAULT 0`,
+        `ALTER TABLE professionals ADD COLUMN phone TEXT`,
+        `ALTER TABLE professionals ADD COLUMN updated_at TIMESTAMP`,
+    ];
+    for (const m of migrations) {
+        try { dbExport.run(m); } catch (_) { /* column already exists */ }
+    }
+
     console.log("DATABASE: Adapters established. Schema validation complete.");
+
 });
 
 module.exports = {
