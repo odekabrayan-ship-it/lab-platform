@@ -980,6 +980,43 @@ dbExport.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    // Professional Certification Portal Schema
+    dbExport.run(`CREATE TABLE IF NOT EXISTS cert_applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        professional_id INTEGER NOT NULL,
+        certification_type TEXT NOT NULL,
+        status TEXT DEFAULT 'SUBMITTED',
+        submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        reviewed_by INTEGER,
+        reviewed_at DATETIME,
+        decision_notes TEXT,
+        documents TEXT,
+        professional_statement TEXT,
+        FOREIGN KEY (professional_id) REFERENCES professionals(id)
+    )`);
+
+    dbExport.run(`CREATE TABLE IF NOT EXISTS cert_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        professional_id INTEGER NOT NULL,
+        credential_type TEXT NOT NULL,
+        issuing_authority TEXT,
+        credential_number TEXT,
+        issued_date DATE,
+        expiry_date DATE,
+        status TEXT DEFAULT 'ACTIVE',
+        verification_hash TEXT,
+        FOREIGN KEY (professional_id) REFERENCES professionals(id)
+    )`);
+
+    dbExport.run(`CREATE TABLE IF NOT EXISTS cert_audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cert_application_id INTEGER,
+        action TEXT NOT NULL,
+        performed_by INTEGER,
+        details TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     console.log("DATABASE: Adapters established. Schema validation complete.");
 });
 

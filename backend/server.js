@@ -22,6 +22,8 @@ const webhookApi = require('./routes/webhookApi');
 const requireSubRole = require('./middleware/requireSubRole');
 const requireTenantScope = require('./middleware/requireTenantScope');
 const requireActiveSubscription = require('./middleware/requireActiveSubscription');
+const requirePortal = require('./middleware/requirePortal');
+const certApi = require('./routes/certApi');
 const { logAudit } = require('./utils/auditLog');
 
 // Import Public Trust Modules
@@ -61,6 +63,7 @@ app.use(cors({
     credentials: true
 }));
 app.use('/api/webhooks', webhookApi);
+app.use('/api/cert', authenticateToken, certApi);
 
 app.use(express.json());
 
@@ -306,12 +309,25 @@ app.get('/api/admin/verification-requests', authenticateToken, authorize('admin'
 }));
 
 app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password, portal } = req.body;
     const user = await dbGet(`SELECT * FROM users WHERE email = ?`, [email]);
     if (!user) throw new ApiError('User not found', 404);
     
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw new ApiError('Invalid password', 401);
+
+    // Portal-Role validation (if portal is specified)
+    const portalRoleMap = {
+        lab: ['lab', 'client', 'consumer', 'admin'],
+        admin: ['admin'],
+        cert: ['professional', 'admin'],
+        trust: ['lab', 'client', 'consumer', 'admin', 'professional']
+    };
+
+    const resolvedPortal = portal || 'lab'; // default to lab portal
+    if (portalRoleMap[resolvedPortal] && !portalRoleMap[resolvedPortal].includes(user.role)) {
+        throw new ApiError(`Access denied: Your role '${user.role}' is not authorized for the '${resolvedPortal}' portal.`, 403);
+    }
 
     // Fetch institutional status with Inheritance Awareness
     let status = 'NEW';
@@ -336,7 +352,8 @@ app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
         role: user.role, 
         email: user.email,
         sub_role: user.sub_role,
-        parent_client_id: user.parent_client_id
+        parent_client_id: user.parent_client_id,
+        portal: resolvedPortal
     }, JWT_SECRET, { expiresIn: '8h' });
     
     sendSuccess(res, { 
@@ -348,7 +365,8 @@ app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
             sub_role: user.sub_role,
             parent_client_id: user.parent_client_id,
             verification_status: status,
-            subscription_status: subStatus
+            subscription_status: subStatus,
+            portal: resolvedPortal
         } 
     });
 }));
