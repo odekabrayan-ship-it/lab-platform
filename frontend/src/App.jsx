@@ -74,6 +74,7 @@ import TrustAccelerator from "./pages/TrustAccelerator";
 import SealCommandCenter from "./pages/SealCommandCenter";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import OversightSentinel from "./components/OversightSentinel";
+import SealVerification from "./pages/SealVerification";
 import './index.css';
 
 function App() {
