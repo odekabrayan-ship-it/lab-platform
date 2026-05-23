@@ -37,7 +37,10 @@ const vigilanceEngine = require('./services/VigilanceEngine');
 
 const app = express();
 const allowedOrigins = [
-    'https://lab-platform-portal-s4oj.vercel.app',
+    'https://labportal-phi.vercel.app',
+    'https://portal-admin-zeta.vercel.app',
+    'https://qualicore-trust.vercel.app',
+    'https://certification-rosy.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000'
 ];
