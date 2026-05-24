@@ -50,20 +50,25 @@ export default function CertApplication() {
   const handleSubmit = async () => {
     setError('');
     if (!form.professional_statement.trim()) { setError('A professional statement is required.'); return; }
+    if (files.length === 0) { setError('At least one document is required.'); return; }
     setSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append('certification_type', form.certification_type);
-      fd.append('professional_statement', form.professional_statement);
-      files.forEach(f => fd.append('documents', f));
+      // 1. Upload mock documents
+      for (const f of files) {
+        await API.post('/api/professional/documents', {
+          document_type: form.certification_type || 'General',
+          file_url: `/uploads/${f.name}`,
+          file_name: f.name
+        });
+      }
 
-      await API.post('/api/cert/applications', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      // 2. Submit Application
+      await API.post('/api/professional/submit', {});
+
       setSuccess(true);
       setTimeout(() => navigate('/dashboard'), 4000);
     } catch (e) {
-      setError(e.response?.data?.error || 'Submission failed. Please try again.');
+      setError(e.response?.data?.error || 'Submission failed. Please make sure your profile is fully complete (Name, Bio, Experience, Location, Phone, Specialty).');
     }
     setSubmitting(false);
   };

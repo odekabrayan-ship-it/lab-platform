@@ -4,22 +4,22 @@ import API from '../services/api';
 
 const FIELDS = [
   { key: 'full_name', label: 'Full Name', placeholder: 'Dr. Jane Smith', required: true },
-  { key: 'specialization', label: 'Specialization / Discipline', placeholder: 'Clinical Chemistry, Microbiology...' },
-  { key: 'institution', label: 'Institution / Organization', placeholder: 'National Reference Laboratory' },
-  { key: 'years_experience', label: 'Years of Experience', placeholder: '0', type: 'number' },
-  { key: 'phone', label: 'Contact Phone', placeholder: '+1 555 000 0000' },
+  { key: 'specialty', label: 'Specialty / Discipline', placeholder: 'Clinical Chemistry, Microbiology...' },
+  { key: 'location', label: 'Location / Institution', placeholder: 'National Reference Laboratory' },
+  { key: 'experience_years', label: 'Years of Experience', placeholder: '0', type: 'number' },
+  { key: 'contact_phone', label: 'Contact Phone', placeholder: '+1 555 000 0000' },
 ];
 
 export default function ProfessionalProfile() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ full_name: '', specialization: '', institution: '', years_experience: '', phone: '', bio: '' });
+  const [form, setForm] = useState({ full_name: '', specialty: '', location: '', experience_years: '', contact_phone: '', bio: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    API.get('/api/cert/profile').then(r => {
+    API.get('/api/professional/profile').then(r => {
       if (r.data.data) setForm({ ...form, ...r.data.data });
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -29,7 +29,7 @@ export default function ProfessionalProfile() {
     if (!form.full_name.trim()) { setError('Full name is required.'); return; }
     setSaving(true);
     try {
-      await API.put('/api/cert/profile', form);
+      await API.post('/api/professional/profile', form);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
@@ -121,10 +121,11 @@ export default function ProfessionalProfile() {
         <div className="space-y-1">
           {[
             { label: 'Full name', done: !!form.full_name },
-            { label: 'Specialization', done: !!form.specialization },
-            { label: 'Institution', done: !!form.institution },
-            { label: 'Years of experience', done: !!form.years_experience },
+            { label: 'Specialty', done: !!form.specialty },
+            { label: 'Location', done: !!form.location },
+            { label: 'Years of experience', done: !!form.experience_years },
             { label: 'Bio', done: !!form.bio },
+            { label: 'Phone', done: !!form.contact_phone },
           ].map(item => (
             <div key={item.label} className="flex items-center gap-2 text-xs">
               <span className={item.done ? 'text-emerald-400' : 'text-slate-700'}>{item.done ? '✓' : '○'}</span>

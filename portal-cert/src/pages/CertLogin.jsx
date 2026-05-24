@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import API from '../services/api';
 import { setSession } from '../services/auth';
 
@@ -58,7 +58,9 @@ export default function CertLogin() {
             </button>
           </form>
           <div className="mt-12 pt-8 border-t border-white/5 text-center">
-            <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">Need an account? Contact your institution</p>
+            <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mb-4">
+              Need an account? <Link to="/register" className="text-teal-400 hover:underline">Register Here</Link>
+            </p>
           </div>
         </div>
       </div>
