@@ -1028,7 +1028,9 @@ dbExport.serialize(() => {
         `ALTER TABLE professionals ADD COLUMN updated_at TIMESTAMP`,
     ];
     for (const m of migrations) {
-        try { dbExport.run(m); } catch (_) { /* column already exists */ }
+        dbExport.run(m, (err) => {
+            if (err) { /* column already exists */ }
+        });
     }
 
     console.log("DATABASE: Adapters established. Schema validation complete.");

@@ -3,21 +3,49 @@ import { useNavigate } from 'react-router-dom';
 import API, { API_BASE } from '../services/api';
 
 const CERT_TYPES = [
+  { value: 'Industrial Chemist', icon: '⚗️', desc: 'Petrochemicals, heavy manufacturing & industrial synthesis' },
+  { value: 'Molecular Biologist', icon: '🧬', desc: 'Genomics, PCR testing & molecular diagnostics' },
+  { value: 'Food & Beverage Analyst', icon: '🍎', desc: 'Nutritional testing, food safety & pathogen screening' },
+  { value: 'Forensic Scientist', icon: '🕵️', desc: 'Trace evidence analysis, toxicology & criminalistics' },
+  { value: 'Microbiologist (QA/QC)', icon: '🧫', desc: 'Sterility testing, environmental monitoring & bioprocessing' },
+  { value: 'Formulation Scientist', icon: '💊', desc: 'Drug development, compounding & therapeutic design' },
+  { value: 'Materials Scientist', icon: '🏗️', desc: 'Polymer testing, structural integrity & material properties' },
+  { value: 'Clinical Laboratory Scientist', icon: '⚕️', desc: 'Medical pathology, diagnostic assays & patient testing' },
+  { value: 'Regulatory Compliance (GLP/GMP)', icon: '📜', desc: 'Laboratory audits, FDA/EMA standards & QA' },
+  { value: 'LIMS Specialist', icon: '💻', desc: 'Data management, lab automation & systems architecture' },
+  // ISO & International Standards
+  { value: 'ISO/IEC 17025 Assessor', icon: '📐', desc: 'Testing & calibration laboratory accreditation' },
+  { value: 'ISO 15189 Medical Assessor', icon: '🏥', desc: 'Medical laboratory quality & competence' },
+  { value: 'ISO 9001 Lead Auditor', icon: '✅', desc: 'Quality management systems auditing' },
+  { value: 'ISO 13485 Auditor', icon: '🩺', desc: 'Medical device manufacturing compliance' },
+  { value: 'ISO 14001/45001 EHS Auditor', icon: '🌍', desc: 'Environmental, health & safety management' },
+  // Keeping some original core modules
   { value: 'Laboratory Analyst', icon: '🔬', desc: 'Clinical & analytical laboratory testing' },
   { value: 'Quality Manager', icon: '📋', desc: 'Quality assurance & management systems' },
   { value: 'Safety Officer', icon: '⚠️', desc: 'Laboratory health, safety & compliance' },
   { value: 'Metrology Specialist', icon: '📏', desc: 'Measurement science & calibration' },
-  { value: 'Environmental Scientist', icon: '🌱', desc: 'Environmental testing & monitoring' },
-  { value: 'Calibration Technician', icon: '⚙️', desc: 'Instrument calibration & verification' },
 ];
 
 const REQUIRED_DOCS = {
+  'Industrial Chemist': ['Chemistry Degree', 'Chemical Handling Certificate', 'Work Experience Letter'],
+  'Molecular Biologist': ['Biology/Genetics Degree', 'Molecular Training Log', 'Experience Letter'],
+  'Food & Beverage Analyst': ['Food Science Degree', 'Food Safety Certificate', 'Experience Letter'],
+  'Forensic Scientist': ['Forensic Science Degree', 'Chain of Custody Training', 'Experience Letter'],
+  'Microbiologist (QA/QC)': ['Microbiology Degree', 'Sterility Training Log', 'Work Experience Letter'],
+  'Formulation Scientist': ['Pharmaceutical Science Degree', 'Formulation Portfolio', 'Experience Letter'],
+  'Materials Scientist': ['Materials Science Degree', 'NDT Training Certificate', 'Experience Letter'],
+  'Clinical Laboratory Scientist': ['Clinical Lab Degree', 'State/National Board License', 'Experience Letter'],
+  'Regulatory Compliance (GLP/GMP)': ['Regulatory Training Certificate', 'Audit Log History', 'Experience Letter'],
+  'LIMS Specialist': ['IT/Informatics Degree', 'Database Administration Certificate', 'Experience Letter'],
+  'ISO/IEC 17025 Assessor': ['ISO 17025 Lead Assessor Certificate', 'Technical Degree', 'Audit Log History'],
+  'ISO 15189 Medical Assessor': ['ISO 15189 Training Certificate', 'Medical Lab Degree', 'Audit Log History'],
+  'ISO 9001 Lead Auditor': ['ISO 9001 Lead Auditor Certificate', 'Quality Management Experience', 'Audit Log'],
+  'ISO 13485 Auditor': ['ISO 13485 Auditor Training', 'Medical Device Experience', 'Audit Log History'],
+  'ISO 14001/45001 EHS Auditor': ['EHS Management Certificate', 'ISO 14001/45001 Training', 'Audit Log History'],
   'Laboratory Analyst': ['Academic Degree Certificate', 'Laboratory Training Certificate', 'Work Experience Letter'],
   'Quality Manager': ['Academic Degree Certificate', 'ISO Training Certificate', 'Work Experience Letter (5+ years)'],
   'Safety Officer': ['Safety Training Certificate', 'Work Experience Letter', 'Government ID'],
   'Metrology Specialist': ['Metrology Training Certificate', 'Calibration Competency Record', 'Work Experience Letter'],
-  'Environmental Scientist': ['Environmental Science Degree', 'Field Experience Record', 'Government ID'],
-  'Calibration Technician': ['Technical Training Certificate', 'Calibration Records', 'Equipment Competency Log'],
 };
 
 export default function CertApplication() {

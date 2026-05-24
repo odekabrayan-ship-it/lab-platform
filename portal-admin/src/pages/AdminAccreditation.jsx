@@ -4,9 +4,9 @@ import axios from 'axios';
 
 const AdminAccreditation = () => {
     const tabs = [
-        { id: 'dossiers', label: '🎓 Specialist Dossiers', icon: '🎓' },
-        { id: 'roster', label: '🛡️ Active Roster & Enforcement', icon: '🛡️' },
-        { id: 'engagement', label: '💼 Engagement Pipeline', icon: '💼' }
+        { key: 'dossiers', label: '🎓 Specialist Dossiers', icon: '🎓', component: <SpecialistDossiers /> },
+        { key: 'roster', label: '🛡️ Active Roster & Enforcement', icon: '🛡️', component: <ActiveRoster /> },
+        { key: 'engagement', label: '💼 Engagement Pipeline', icon: '💼', component: <EngagementPipeline /> }
     ];
 
     const renderContent = (activeTab) => {

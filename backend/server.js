@@ -40,8 +40,13 @@ const allowedOrigins = [
     'https://labportal-phi.vercel.app',
     'https://portal-admin-zeta.vercel.app',
     'https://qualicore-trust.vercel.app',
+    'http://localhost:5177',
     'https://certification-rosy.vercel.app',
     'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5176',
+    'http://localhost:5177',
     'http://localhost:3000'
 ];
 
@@ -2851,9 +2856,9 @@ app.put('/api/admin/labs/:id/verify', authenticateToken, authorize('admin'), asy
 // --- Professional Accreditation Authority ---
 app.get('/api/admin/professionals/pending', authenticateToken, authorize('admin'), asyncHandler(async (req, res) => {
     const data = await dbAll(`
-        SELECT id, user_id, name, specialization, certification_status 
+        SELECT id, user_id, full_name, specialty, certification_status 
         FROM professionals 
-        WHERE certification_status = 'pending' OR certification_status IS NULL
+        WHERE certification_status IN ('pending', 'pending_review', 'payment_pending') OR certification_status IS NULL
         ORDER BY created_at DESC
     `);
     sendSuccess(res, data);
@@ -3209,13 +3214,23 @@ app.patch('/api/admin/professionals/:id/verify', authenticateToken, authorize('a
     );
 
     // Notify Professional
-    const profile = await dbGet(`SELECT user_id, full_name FROM professionals WHERE id = ?`, [req.params.id]);
+    const profile = await dbGet(`SELECT user_id, full_name, specialty FROM professionals WHERE id = ?`, [req.params.id]);
     const message = dbStatus === 'approved' 
         ? `Congratulations ${profile.full_name}! Your expert certification has been APPROVED at the ${tier} level.`
         : `Update on your certification: ${dbStatus.toUpperCase()}. Notes: ${notes}`;
     
     await dbRun(`INSERT INTO notifications (user_id, message, type) VALUES (?, ?, ?)`, 
         [profile.user_id, message, dbStatus === 'approved' ? 'SUCCESS' : 'SYSTEM']);
+
+    if (dbStatus === 'approved') {
+        const credNumber = `QC-${(profile.specialty || 'GEN').substring(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+        const crypto = require('crypto');
+        const verificationHash = crypto.randomBytes(20).toString('hex');
+        await dbRun(
+            `INSERT INTO cert_credentials (professional_id, credential_type, credential_number, issuing_authority, issued_date, expiry_date, status, verification_hash) VALUES (?, ?, ?, 'QualiCore Sovereign Trust', date('now'), date('now', '+2 years'), 'ACTIVE', ?)`,
+            [req.params.id, profile.specialty || 'General', credNumber, verificationHash]
+        );
+    }
 
     // Audit Log
     await dbRun(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_value) VALUES (?, ?, 'professional', ?, ?)`,
@@ -3410,7 +3425,7 @@ app.post('/api/professional/profile', authenticateToken, authorize('professional
     const { full_name, specialty, experience_years, bio, location, contact_phone } = req.body;
     const result = await dbRun(
         `INSERT INTO professionals (user_id, full_name, specialty, experience_years, bio, location, contact_phone, certification_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT')
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')
          ON CONFLICT(user_id) DO UPDATE SET 
             full_name=excluded.full_name, specialty=excluded.specialty, 
             experience_years=excluded.experience_years, bio=excluded.bio, 
