@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { getUser, isAuthenticated } from './services/auth';
 import CertLogin from './pages/CertLogin';
+import CertRegister from './pages/CertRegister';
 import CertDashboard from './pages/CertDashboard';
 import CertApplication from './pages/CertApplication';
 import CredentialRegistry from './pages/CredentialRegistry';
@@ -85,6 +86,7 @@ function App() {
       <Routes>
         {/* Public routes */}
         <Route path="/login" element={<CertLogin />} />
+        <Route path="/register" element={<CertRegister />} />
         <Route path="/registry" element={authed ? <CertNav><CredentialRegistry /></CertNav> : <CredentialRegistry />} />
         <Route path="/verify" element={authed ? <CertNav><CredentialVerify /></CertNav> : <CredentialVerify />} />
         <Route path="/verify/:credentialNumber" element={authed ? <CertNav><CredentialVerify /></CertNav> : <CredentialVerify />} />

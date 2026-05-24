@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import API from "../services/api";
 
@@ -29,21 +29,47 @@ export default function RegisterPage() {
   const [form, setForm] = useState({ 
     email: "", 
     password: "", 
-    role: "consumer",
-    entityName: "",
-    industry: "STAPLES"
+    confirmPassword: "",
+    role: "consumer"
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pwdStrength, setPwdStrength] = useState({ score: 0, label: '', color: 'bg-slate-700' });
   const navigate = useNavigate();
+
+  // Evaluate Password Strength
+  useEffect(() => {
+    let score = 0;
+    if (form.password.length > 7) score += 1;
+    if (/[A-Z]/.test(form.password)) score += 1;
+    if (/[0-9]/.test(form.password)) score += 1;
+    if (/[^A-Za-z0-9]/.test(form.password)) score += 1;
+
+    if (form.password.length === 0) setPwdStrength({ score: 0, label: '', color: 'bg-slate-700' });
+    else if (score < 2) setPwdStrength({ score, label: 'Weak', color: 'bg-red-500' });
+    else if (score === 2) setPwdStrength({ score, label: 'Fair', color: 'bg-amber-500' });
+    else if (score === 3) setPwdStrength({ score, label: 'Good', color: 'bg-blue-500' });
+    else setPwdStrength({ score, label: 'Strong', color: 'bg-emerald-500' });
+  }, [form.password]);
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError("");
 
+    if (form.password !== form.confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+    }
+    if (pwdStrength.score < 2) {
+        setError("Please choose a stronger password.");
+        return;
+    }
+
+    setLoading(true);
+
     try {
-      await API.post("/api/register", form);
+      const payload = { email: form.email, password: form.password, role: form.role };
+      await API.post("/api/register", payload);
       const loginRes = await API.post("/api/login", { email: form.email, password: form.password });
       localStorage.setItem("token", loginRes.data.data.token);
       localStorage.setItem("user", JSON.stringify(loginRes.data.data.user));
@@ -53,7 +79,6 @@ export default function RegisterPage() {
       if (role === "consumer") navigate("/consumer-hub");
       else if (role === "client") navigate("/complete-profile");
       else if (role === "lab") navigate("/complete-lab-profile");
-      else if (role === "professional") navigate("/professional-profile");
       else navigate("/dashboard");
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed. Verification server unreachable.");
@@ -84,7 +109,7 @@ export default function RegisterPage() {
             </div>
 
             {step === 1 ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-scale-up">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-scale-up max-w-3xl mx-auto">
                     <PersonaCard 
                         icon="🛡️"
                         title="Guardian"
@@ -99,15 +124,8 @@ export default function RegisterPage() {
                         selected={form.role === 'client' || form.role === 'lab'}
                         onClick={() => setForm({ ...form, role: 'client' })}
                     />
-                    <PersonaCard 
-                        icon="🔬"
-                        title="Technical Expert"
-                        desc="QA Directors or Scientists. Join the scientific oversight and validate technical reports."
-                        selected={form.role === 'professional'}
-                        onClick={() => setForm({ ...form, role: 'professional' })}
-                    />
 
-                    <div className="md:col-span-3 flex justify-center mt-12">
+                    <div className="md:col-span-2 flex justify-center mt-12">
                         <button 
                             onClick={() => setStep(2)}
                             className="px-12 py-5 rounded-2xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 transition-all flex items-center gap-4 shadow-xl shadow-indigo-600/20"
@@ -141,20 +159,47 @@ export default function RegisterPage() {
                                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                                 />
                             </div>
+                            
                             <div>
                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Master Password</label>
                                 <input 
                                     type="password" 
                                     required 
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-sm focus:border-indigo-500 focus:bg-white/10 outline-none transition-all"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-sm focus:border-indigo-500 focus:bg-white/10 outline-none transition-all mb-2"
                                     placeholder="••••••••"
                                     value={form.password}
                                     onChange={(e) => setForm({ ...form, password: e.target.value })}
                                 />
+                                {/* Password Strength Indicator */}
+                                {form.password.length > 0 && (
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex-1 flex gap-1 h-1.5">
+                                            {[1, 2, 3, 4].map(s => (
+                                                <div key={s} className={`flex-1 rounded-full ${s <= pwdStrength.score ? pwdStrength.color : 'bg-white/5'}`}></div>
+                                            ))}
+                                        </div>
+                                        <span className={`text-[10px] font-bold ${pwdStrength.color.replace('bg-', 'text-')}`}>{pwdStrength.label}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Confirm Password</label>
+                                <input 
+                                    type="password" 
+                                    required 
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-sm focus:border-indigo-500 focus:bg-white/10 outline-none transition-all"
+                                    placeholder="••••••••"
+                                    value={form.confirmPassword}
+                                    onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                                />
+                                {form.confirmPassword && form.password !== form.confirmPassword && (
+                                    <p className="text-red-400 text-[10px] font-bold mt-2">Passwords do not match</p>
+                                )}
                             </div>
 
                             {form.role !== 'consumer' && (
-                                <div className="animate-fade-in">
+                                <div className="animate-fade-in pt-2">
                                     <label className="block text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-2">Detailed Entity Type</label>
                                     <select 
                                         className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
@@ -163,15 +208,14 @@ export default function RegisterPage() {
                                     >
                                         <option value="client">Manufacturing Company</option>
                                         <option value="lab">Analytical Laboratory</option>
-                                        <option value="professional">Technical Professional</option>
                                     </select>
                                 </div>
                             )}
 
                             <button 
                                 type="submit" 
-                                disabled={loading}
-                                className="w-full py-5 rounded-2xl bg-white text-[#020617] font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all shadow-xl disabled:opacity-50"
+                                disabled={loading || form.password !== form.confirmPassword || pwdStrength.score < 2}
+                                className="w-full py-5 mt-4 rounded-2xl bg-white text-[#020617] font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all shadow-xl disabled:opacity-50"
                             >
                                 {loading ? "Decrypting Protocol..." : "Finalize Registration"}
                             </button>
@@ -181,6 +225,11 @@ export default function RegisterPage() {
                             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                                 By joining, you adhere to the QualiCore Sovereign Trust Accord.
                             </p>
+                            <div className="mt-4 pt-4 border-t border-white/5">
+                                <a href="http://certification-rosy.vercel.app" className="text-teal-400 text-xs font-bold hover:underline">
+                                    Are you a Technical Professional? →
+                                </a>
+                            </div>
                         </div>
                     </div>
                     
